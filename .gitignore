@@ -1,0 +1,8 @@
+*.tar.gz
+*.exe
+/win/elastix-5.0.1-win64/
+/win/Fiji.app/
+/Fiji.app/
+
+/.idea/
+/envs/deepslice/lib/site-packages/DeepSlice/metadata/weights/
