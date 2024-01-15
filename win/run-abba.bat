@@ -14,8 +14,8 @@ cd /D "%~dp0"
 call !CONDA_ENV_PATH!\condabin\activate.bat
 
 :: Set the environment variables related to Java
-set "JAVA_HOME=!CONDA_ENV_PATH!\Library\lib\jvm"
-set "PATH=!CONDA_ENV_PATH!\Library\lib\jvm\bin;!PATH!"
+set "JAVA_HOME=!CONDA_ENV_PATH!\Library\jre"
+set "PATH=!CONDA_ENV_PATH!\Library\jre\bin;!PATH!"
 
 :: Verify Java version and environment
 echo Activated Conda environment at: !CONDA_ENV_PATH!

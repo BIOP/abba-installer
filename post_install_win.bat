@@ -20,7 +20,7 @@ set CONDA_ENV_PATH=%PREFIX%
 
 REM Activate main Conda environment
 call %CONDA_ENV_PATH%\Scripts\activate
-pip install abba-python==0.5.0
+pip install abba-python==0.8.0
 
 REM Install pip dependencies in extra env: DeepSlice
 set CONDA_DEEPSLIVEENV_PATH=%PREFIX%\env\deep
@@ -28,15 +28,17 @@ set CONDA_DEEPSLIVEENV_PATH=%PREFIX%\env\deep
 REM Activate extra Conda environment
 call %CONDA_ENV_PATH%\Scripts\activate %PREFIX%\envs\deepslice
 pip install DeepSlice==1.1.5
+pip install urllib3==1.26.6
 
 echo ===== Unpack extra files (DeepSlice models, logos...) =====
 
 REM untar extra files into the install folder (deepslice model, deepslice cli script)
 tar -xzvf "%PREFIX%\abba-pack-win.tar.gz" -C "%PREFIX%"
+rm "%PREFIX%\abba-pack-win.tar.gz"
 
 echo ===== Create ABBA shortcut =====
 
-set shortcutPath='%userprofile%\Desktop\ABBA.lnk'
+set shortcutPath='%userprofile%\Desktop\ABBA-0.8.0.lnk'
 set shortcutTarget='%PREFIX%\win\run-abba.bat'
 set shortcutIcon='%PREFIX%\img\logo256x256.ico'
 

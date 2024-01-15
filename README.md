@@ -63,6 +63,13 @@ The initial launch of ABBA may take some time since it needs to download most of
 
 ## How to Create the Installer
 
+### To do once: create an env for conda-constructor
+```
+conda create --name constructor-env constructor
+conda activate constructor-env
+```
+
+### Use conda-constructor
 The YAML file in this repository is required by conda-constructor. However, additional steps are needed to build the installer:
 
 1. Clone this repository.
@@ -77,6 +84,7 @@ Each operating system has its own requirements:
 ### Windows
 
 Place the [elastix executables](https://github.com/SuperElastix/elastix/releases/tag/5.0.1) in the `win` subfolder under version 5.0.1: `win\elastix-5.0.1-win64`. Then run `prepare_win.bat`, which generates an `abba-pack-win.tar.gz` file. This file will be included in the installer and unpacked during installation using the post-install script.
+TODO: add in prepare_win.sh script
 
 ### Mac
 
@@ -96,7 +104,12 @@ I would like to explore using the mamba solver because conda can be quite slow.
 
 [Link to mamba.bat](C:\ProgramData\Miniconda3\condabin\mamba.bat) and [reference to issue](https://github.com/mamba-org/mamba/issues/1627).
 
+### Note for using a local Fiji copy jars!
+
+Initialize with a local Fiji.app installation, so that PyImageJ does not need to download anything else from the Internet. In this case you will also have to manually download the latest .jar files for imglib2-unsafe and imglib2-imglyb and place them in your local Fiji.app/jars directory, as these are required for PyImageJ but not part of the standard Fiji distribution
+
 **TODO List**:
 - Include a message informing users that a valid internet connection is required to run this installer (for pip dependencies).
 - Consider including a local Fiji distribution.
 - Explore adding dependencies for OMERO.
+- DO NOT FORGET TO CHANGE THE VERSION IN THE SHORTCUT
