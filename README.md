@@ -1,3 +1,5 @@
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/BIOP/ijp-imagetoatlas)
+
 # Full Repository for Creating an Installer for [ABBA](https://biop.github.io/ijp-imagetoatlas/)
 
 Welcome to the repository designed to support the creation of standalone installers for [ABBA](https://biop.github.io/ijp-imagetoatlas/). This repository utilizes [conda constructor](https://github.com/conda/constructor) as its core tool. Currently, only Windows is supported, but if you are interested in contributing a standalone installer for other operating systems, please feel free to do so!
