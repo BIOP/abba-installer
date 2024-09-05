@@ -1,7 +1,7 @@
 @echo off
 :CHECK_INTERNET
 echo ===== Checking internet connection =====
-ping google.com -n 1 > nul
+ping pypi.org -n 1 > nul
 
 if errorlevel 1 (
     echo You are not connected to the internet.
@@ -20,7 +20,7 @@ set CONDA_ENV_PATH=%PREFIX%
 
 REM Activate main Conda environment
 call %CONDA_ENV_PATH%\Scripts\activate
-pip install abba-python==0.8.0
+pip install abba-python==0.9.1.dev1
 
 REM Install pip dependencies in extra env: DeepSlice
 set CONDA_DEEPSLIVEENV_PATH=%PREFIX%\env\deep
@@ -38,7 +38,7 @@ rm "%PREFIX%\abba-pack-win.tar.gz"
 
 echo ===== Create ABBA shortcut =====
 
-set shortcutPath='%userprofile%\Desktop\ABBA-0.8.0.lnk'
+set shortcutPath='%userprofile%\Desktop\ABBA-0.9.5.lnk'
 set shortcutTarget='%PREFIX%\win\run-abba.bat'
 set shortcutIcon='%PREFIX%\img\logo256x256.ico'
 

@@ -1,18 +1,18 @@
 name: ABBA-Python
-version: 0.8.0
+version: 0.9.5
 
 channels:
   - conda-forge
   - defaults
 
 specs:
-  - python=3.8.17
-  - pip=23.2.1
-  - pyimagej=1.4.1
-  - bg-atlasapi=1.0.2
+  - python=3.12.4
+  - pip=24.0
+  - pyimagej=1.5.0
+  - brainglobe-atlasapi=2.0.9
   - openjdk=8
   - maven
-  - conda=23.7.4 # also necessary for extr envs
+  - conda=24.7.1 # also necessary for extr envs
   - console_shortcut # [win]
   - menuinst # [win]
 
@@ -28,7 +28,7 @@ extra_envs:
       - scipy=1.6.0
 #     - tensorflow=1.14.0 # modif 1: otherwise the predictions from DeepSlice are bad with nan values everywhere
       - tqdm=4.56.0
-      - h5py=2.10.0 # modif 2: seems required for deepslice, otherwise a keras decode utf8 error is raiser
+      - h5py=2.10.0 # modif 2: seems required for deepslice, otherwise a keras decode utf8 error is raised
       - openssl=1.1.1q # modif 3: dll not loaded error with netcdf4 on windows
       - netcdf4=1.5.7
     channels:

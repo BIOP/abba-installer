@@ -14,7 +14,7 @@ if __name__ == '__main__':
     import scyjava
 
     # scyjava.config.add_option('-XX:+UseZGC') # Use ZGC
-    scyjava.config.add_option('-Xmx5g') # 5 Gb
+    scyjava.config.add_option('-Xmx8g') # 5 Gb
 
     # You can swap the lines below if you want to use a  Fiji instead of the maven downloaded one
     use_local_fiji = True
@@ -43,13 +43,15 @@ if __name__ == '__main__':
 
     DebugTools = jimport('loci.common.DebugTools')
     # DebugTools.enableLogging('OFF') # less logging
-    DebugTools.enableLogging("INFO");
+    DebugTools.enableLogging("INFO")
     # DebugTools.enableLogging("DEBUG"); # more logging
+    python_info = 'ABBA Python (installer) v0.9.5'
+    ABBAForumHelpCommand.pythonInformation = JString(python_info)
 
     File = jimport('java.io.File')
     # Sets DeepSlice env path - hopefully it's a common location for all OSes
     deepslice_env_path = str(os.path.join(directory_on_launch, 'envs', 'deepslice'))
-    deepslice_version = JString(str('1.1.5'))
+    deepslice_version = JString(str('1.1.5.1'))
     DeepSlice = jimport('ch.epfl.biop.wrappers.deepslice.DeepSlice')
     DeepSlice.setEnvDirPath(File(deepslice_env_path))
     DeepSlice.setVersion(deepslice_version)  # not autodetected. Do not matter for 1.1.5, but may matter later
@@ -69,8 +71,8 @@ if __name__ == '__main__':
         condaPath = str(os.path.join(directory_on_launch, 'condabin', 'conda.bat'))
         Conda.windowsCondaCommand = JString(str(condaPath))  # Sets the conda path
 
-        elastixPath = str(os.path.join(directory_on_launch, 'win', 'elastix-5.0.1-win64', 'elastix.exe'))
-        transformixPath = str(os.path.join(directory_on_launch, 'win', 'elastix-5.0.1-win64', 'transformix.exe'))
+        elastixPath = str(os.path.join(directory_on_launch, 'win', 'elastix-5.2.0-win64', 'elastix.exe'))
+        transformixPath = str(os.path.join(directory_on_launch, 'win', 'elastix-5.2.0-win64', 'transformix.exe'))
 
         Elastix.exePath = JString(str(elastixPath))
         Elastix.setExePath(File(JString(str(elastixPath))))

@@ -4,7 +4,6 @@ import argparse
 
 from DeepSlice.read_and_write import QuickNII_functions
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description="This is a command line interface to DeepSlice (https://github.com/PolarBean/DeepSlice)")
     parser.add_argument("model", help="DeepSlice model: mouse or rat")
@@ -25,7 +24,6 @@ def parse_arguments():
 
     # enforce_index_spacing
     return parser.parse_args()
-
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':

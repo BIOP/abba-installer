@@ -6,3 +6,8 @@
 
 /.idea/
 /envs/deepslice/lib/site-packages/DeepSlice/metadata/weights/
+/biop-bash-scripts-main/
+/win/elastix-5.2.0-win64/ANNlib-5.2.dll
+/win/elastix-5.2.0-win64/LICENSE
+/win/elastix-5.2.0-win64/NOTICE
+/biop-bash-scripts/
