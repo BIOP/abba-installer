@@ -88,6 +88,8 @@ Each operating system has its own requirements:
 Place the [elastix executables](https://github.com/SuperElastix/elastix/releases/tag/5.0.1) in the `win` subfolder under version 5.0.1: `win\elastix-5.0.1-win64`. Then run `prepare_win.bat`, which generates an `abba-pack-win.tar.gz` file. This file will be included in the installer and unpacked during installation using the post-install script.
 TODO: add in prepare_win.sh script
 
+Place the script https://github.com/BIOP/ijl-utilities-wrappers/blob/master/src/main/resources/deepslice_cli_v1.1.5.1.py in the appriopriate location so that DeepSlice can be run without admin rights passed the installation.
+
 ### Mac
 
 Please refer to [this issue](https://github.com/NicoKiaru/ABBA-Python/issues/16).
