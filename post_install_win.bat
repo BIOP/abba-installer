@@ -20,7 +20,7 @@ set CONDA_ENV_PATH=%PREFIX%
 
 REM Activate main Conda environment
 call %CONDA_ENV_PATH%\Scripts\activate
-pip install abba-python==0.9.1.dev1
+pip install abba-python==0.9.1.dev2
 
 REM Install pip dependencies in extra env: DeepSlice
 set CONDA_DEEPSLIVEENV_PATH=%PREFIX%\env\deep
@@ -72,30 +72,41 @@ REM set /p "id=Shortcut installed "
 
 echo ===== Checking if Visual C++ redistributable is installed (elastix requirements) =====
 
-if %errorlevel%==0 (
-    for /f "tokens=2" %%i in ('reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" /v Version ^| findstr /i "^[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*$"') do set installed_version=%%i
+REM Check if the VC++ Redistributable is installed and get the version number
+for /f "tokens=2" %%i in ('reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" /v Version ^| findstr /i "^[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*$"') do set installed_version=%%i
+
+if defined installed_version (
     echo Found installed version %installed_version%
-    if "%installed_version%" geq "14.0.0.0" (
-        echo Visual C++ redistributable version is up to date. Skipping installation.
-        goto end
+
+    REM Compare installed version with the required version
+    if "%installed_version%" geq "%REQUIRED_VERSION%" (
+        echo Visual C++ Redistributable version is up to date. Skipping installation.
+        goto :EOF
+    ) else (
+        echo Installed version is older than required. Proceeding with installation.
     )
+) else (
+    echo Visual C++ Redistributable is not installed. Proceeding with installation.
 )
 
-if %errorlevel%==0 (
-    echo Visual C++ redistributable version %REDIST_VERSION% is already installed.
-    goto end
+REM Download the VC++ Redistributable installer if not already present
+if not exist "%VC_REDIST_EXE%" (
+    echo Downloading VC++ Redistributable installer...
+    powershell -Command "Invoke-WebRequest -Uri %VC_REDIST_URL% -OutFile %VC_REDIST_EXE%"
 )
 
-echo Visual C++ redistributable version %REDIST_VERSION% is not installed. Downloading...
-
-%SYSTEMROOT%\System32\WindowsPowerShell\v1.0\powershell.exe -Command "Invoke-WebRequest '%REDIST_URL%' -OutFile '%REDIST_EXE%'"
-
-echo Installing Visual C++ redistributable version %REDIST_VERSION%...
-
-start /wait %REDIST_EXE% /quiet /norestart
-
-echo Visual C++ redistributable version %REDIST_VERSION% has been installed successfully.
-
+REM Execute the installer
+if exist "%VC_REDIST_EXE%" (
+    echo Installing VC++ Redistributable...
+    "%VC_REDIST_EXE%" /install /quiet /norestart
+    if %ERRORLEVEL% equ 0 (
+        echo Installation successful.
+    ) else (
+        echo Installation failed with error code %ERRORLEVEL%.
+    )
+) else (
+    echo Failed to download the installer.
+)
 
 :end
 endlocal
