@@ -46,7 +46,7 @@ else
 fi
 
 # Run Fiji install scripts
-./biop-bash-scripts/full_install_biop_fiji.sh "${current_folder}/win/"
+# ./biop-bash-scripts/full_install_biop_fiji.sh "${current_folder}/win/"
 
 # Create a package of files to ship with the installer
 tar -cvzf abba-pack-win.tar.gz img win abba envs
