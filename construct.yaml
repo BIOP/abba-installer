@@ -1,5 +1,5 @@
-name: ABBA-Python-0.9.6.dev0
-version: 0.9.6.dev0
+name: ABBA-Python-0.9.11.dev0
+version: 0.9.11.dev0
 
 channels:
   - conda-forge
@@ -9,7 +9,7 @@ specs:
   - python=3.12.4
   - pip=24.0
   - pyimagej=1.5.0
-  - brainglobe-atlasapi=2.0.9
+  - brainglobe-atlasapi=2.0.11
   - openjdk=8 # jvm not recognized with higher versions
   - maven
   - conda=24.7.1 # also necessary for extr envs
