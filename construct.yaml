@@ -1,5 +1,5 @@
-name: ABBA-Python-0.9.11.dev0
-version: 0.9.11.dev0
+name: ABBA-Python-0.9.11
+version: 0.9.11
 
 channels:
   - conda-forge
