@@ -45,7 +45,7 @@ if __name__ == '__main__':
     # DebugTools.enableLogging('OFF') # less logging
     DebugTools.enableLogging("INFO")
     # DebugTools.enableLogging("DEBUG"); # more logging
-    python_info = 'ABBA Python (installer) v0.10.2'
+    python_info = 'ABBA Python (installer) v0.10.2.1'
     ABBAForumHelpCommand = jimport('ch.epfl.biop.atlas.aligner.command.ABBAForumHelpCommand')
     ABBAForumHelpCommand.pythonInformation = JString(python_info)
 

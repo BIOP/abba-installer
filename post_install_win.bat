@@ -38,7 +38,7 @@ rm "%PREFIX%\abba-pack-win.tar.gz"
 
 echo ===== Create ABBA shortcut =====
 
-set shortcutPath='%userprofile%\Desktop\ABBA-0.10.2.lnk'
+set shortcutPath='%userprofile%\Desktop\ABBA-0.10.2.1.lnk'
 set shortcutTarget='%PREFIX%\win\run-abba.bat'
 set shortcutIcon='%PREFIX%\img\logo256x256.ico'
 
