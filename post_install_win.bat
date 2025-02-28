@@ -20,7 +20,7 @@ set CONDA_ENV_PATH=%PREFIX%
 
 REM Activate main Conda environment
 call %CONDA_ENV_PATH%\Scripts\activate
-pip install abba-python==0.10.3
+pip install abba-python==0.10.4
 
 REM Install pip dependencies in extra env: DeepSlice
 set CONDA_DEEPSLIVEENV_PATH=%PREFIX%\env\deep
@@ -38,7 +38,7 @@ rm "%PREFIX%\abba-pack-win.tar.gz"
 
 echo ===== Create ABBA shortcut =====
 
-set shortcutPath='%userprofile%\Desktop\ABBA-0.10.3.lnk'
+set shortcutPath='%userprofile%\Desktop\ABBA-0.10.4.lnk'
 set shortcutTarget='%PREFIX%\win\run-abba.bat'
 set shortcutIcon='%PREFIX%\img\logo256x256.ico'
 

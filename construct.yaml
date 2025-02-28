@@ -1,5 +1,5 @@
-name: ABBA-Python-0.10.3
-version: 0.10.3
+name: ABBA-Python-0.10.4
+version: 0.10.4
 
 channels:
   - conda-forge

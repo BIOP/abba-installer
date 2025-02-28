@@ -36,14 +36,14 @@ download_file "${base_url}${model}" "${base_folder}${model}"
 
 # For that, use the bash scripts already made in https://github.com/BIOP/biop-bash-scripts
 
-if [ ! -d "${current_folder}/biop-bash-scripts" ]; then
-  git clone https://github.com/BIOP/biop-bash-scripts.git
-else
-  echo "Biop bash scripts already cloned. Update the repo if necessary."
-  cd biop-bash-scripts
-  git pull
-  cd ..
-fi
+#if [ ! -d "${current_folder}/biop-bash-scripts" ]; then
+#  git clone https://github.com/BIOP/biop-bash-scripts.git
+#else
+#  echo "Biop bash scripts already cloned. Update the repo if necessary."
+#  cd biop-bash-scripts
+#  git pull
+#  cd ..
+#fi
 
 # Run Fiji install scripts
 # ./biop-bash-scripts/full_install_biop_fiji.sh "${current_folder}/win/"
