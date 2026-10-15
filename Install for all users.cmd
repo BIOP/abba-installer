@@ -12,7 +12,7 @@ rem
 rem  Everything goes into that one folder, all downloaded now so that no user
 rem  has anything to fetch: the launcher and its own Python, a JDK, ABBA and
 rem  Fiji's jars, and the Python environments of DeepSlice, Elastix and
-rem  BrainGlobe (about 6 GB, 20 to 30 minutes). The ABBA window shows the
+rem  BrainGlobe (about 6 GB, 10 to 20 minutes). The ABBA window shows the
 rem  progress. Users can read the folder but not write to it. Atlases,
 rem  downloaded when first opened, go to %ProgramData%\ABBA (or
 rem  ABBA_SHARED_DATA, see below), which every user can write. An ABBA shortcut
@@ -115,6 +115,9 @@ rem  the users' sessions. Set ABBA_SHARED_DATA before running this to keep the
 rem  atlases elsewhere, on a larger disk for instance.
 echo.
 if not defined ABBA_SHARED_DATA set "ABBA_SHARED_DATA=%ProgramData%\ABBA"
+rem  The jar archive (ABBA-<version>-jars.zip), if it was put next to this file:
+rem  used instead of downloading it, for a computer without internet.
+set "ABBA_JARS_DIR=%SRC%"
 if not exist "%APP%\java" mkdir "%APP%\java"
 if defined QUIET goto :prepare_quietly
 echo Downloading everything; the ABBA window shows the progress. Leave this console open.

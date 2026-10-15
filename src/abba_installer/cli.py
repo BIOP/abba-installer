@@ -56,11 +56,10 @@ def start(args: argparse.Namespace) -> int:
     progress = launcher.Progress()
     output = launcher.FijiOutput(progress)
     reporter = Reporter(progress)
-    process = launcher.start_fiji(options)
-    progress.finish("java")
+    process = launcher.start_fiji(options, progress=progress)
     log = launcher.fiji_log()
     print(f"Fiji is starting (ABBA {launcher.ABBA_VERSION}); its output is also in {log}")
-    print("The first start downloads ABBA and Fiji: allow up to 15 minutes. "
+    print("The first start downloads ABBA and Fiji (about 0.5 GB): allow a few minutes. "
           "Closing this terminal leaves Fiji running.\n")
     try:
         with log.open(encoding="utf-8", errors="replace") as lines:

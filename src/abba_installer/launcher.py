@@ -23,6 +23,7 @@ Two layouts, told apart by a `java` folder next to the virtual environment:
 
 from __future__ import annotations
 
+import functools
 import math
 import os
 import platform
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import zipfile
 from collections import deque
 from collections.abc import Callable, Iterator
@@ -159,6 +161,16 @@ def fiji_log() -> Path:
     return user_dir() / "fiji.log"
 
 
+def repo_cache() -> Path:
+    """jgo's Maven repository cache, where the jars go: the installation's
+    for every user; for one user, Maven's own (M2_REPO, else ~/.m2/repository),
+    which jgo and Maven share."""
+    if shared():
+        return SHARED / "m2"
+    configured = os.environ.get("M2_REPO")
+    return Path(configured) if configured else Path.home() / ".m2" / "repository"
+
+
 def appose_envs_dir() -> Path:
     """Where ABBA's Python environments are: Appose's own default, unless shared."""
     if shared():
@@ -276,8 +288,11 @@ def jgo_argv(main_class: str, *, max_heap: str | None = None,
              args: list[str] = ()) -> list[str]:
     """The jgo command line. Extra dependencies go after ABBA and Fiji, so that
     they add jars without changing the versions ABBA is built with."""
-    caches = (["--cache-dir", str(SHARED / "jgo"), "--repo-cache", str(SHARED / "m2")]
-              if shared() else [])
+    # The repository cache is always given: it is where fetch_jars() unpacks the
+    # jar archive, so it must be where jgo looks, not where it is assumed to look.
+    caches = ["--repo-cache", str(repo_cache())]
+    if shared():
+        caches += ["--cache-dir", str(SHARED / "jgo")]
     heap = ["--max-heap", max_heap] if max_heap else []
     classpath = [arg for path in [logback_jar(), *extra_jars]
                  for arg in ("--add-classpath", str(path))]
@@ -325,13 +340,18 @@ def work_dir() -> Path:
     return work
 
 
-def start_fiji(options: Options, say: Callable[[str], None] = print) -> subprocess.Popen:
+def start_fiji(options: Options, say: Callable[[str], None] = print,
+               progress: Progress | None = None) -> subprocess.Popen:
     """Start Fiji with ABBA, detached, its output going to `fiji_log()`.
 
     Detached and logging to a file rather than a pipe: the window or the
-    terminal that started it can close, and Fiji goes on.
+    terminal that started it can close, and Fiji goes on. Before it, the jar
+    archive when most jars are missing (a first start without Install).
     """
+    progress = progress or Progress()
     home = java_home(say)
+    progress.finish("java")
+    fetch_jars(home, say, progress)
     log_path = fiji_log()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     argv = jgo_argv(FIJI_MAIN, max_heap=options.max_heap,
@@ -350,38 +370,57 @@ def start_fiji(options: Options, say: Callable[[str], None] = print) -> subproce
 #  Progress
 # --------------------------------------------------------------------------- #
 
-#: Files jgo fetches into an empty cache for ENDPOINT (POMs and jars): counted
-#: for these versions, to be recounted at each release (README, Releasing).
-EXPECTED_DOWNLOADS = 1923
 #: Rough durations on a typical connection, in seconds. They weigh the phases
 #: against each other, and stand in for the progress of the ones that report
-#: none: Java's download, and building a Python environment.
-DURATIONS = {"java": 60, "jars": 900, "deepslice": 480, "elastix": 120, "brainglobe": 60}
+#: none: Java's download, and building a Python environment. "jars" is jgo
+#: putting the class path together with every file cached; each file it still
+#: has to fetch adds SECONDS_PER_DOWNLOAD (`Progress.set_missing`).
+DURATIONS = {"java": 60, "archive": 100, "jars": 70,
+             "deepslice": 480, "elastix": 120, "brainglobe": 60}
+#: What jgo takes per file it fetches, measured: latency, not bandwidth.
+SECONDS_PER_DOWNLOAD = 0.47
 
 
 class Progress:
-    """An approximate progress over what a first start or a preparation does:
-    fetch Java, resolve ABBA and Fiji (jgo), build Python environments.
+    """An approximate progress over what a first start or an install does:
+    fetch Java, the jar archive, resolve ABBA and Fiji (jgo), build the Python
+    environments.
 
-    Fed the run's output line by line. The jars are counted (`Downloading`
-    lines against `EXPECTED_DOWNLOADS`); a phase without a count advances with
-    time instead, along a curve that slows down rather than reaching its end
-    before the phase does. With warm caches, phases just finish early.
-    Read from another thread than the one feeding it: only plain values.
+    The archive reports its own progress (`archive_step`); jgo's fetches are
+    counted (`Downloading` lines against the files still missing); a phase
+    without a count advances with time instead, along a curve that slows down
+    rather than reaching its end before the phase does. With warm caches,
+    phases just finish early. Read from another thread than the one feeding
+    it: only plain values.
     """
 
     def __init__(self, environments: list[str] = ()) -> None:
-        self.phases = ["java", "jars", *environments]
+        self.phases = ["java", "archive", "jars", *environments]
+        self.durations = dict(DURATIONS)
         self.done: set[str] = set()
         self.started = {"java": time.monotonic()}
         self.downloads = 0
+        self.archive_fraction = 0.0
+        self.archive_label = ""
+        self.set_missing(expected_downloads())
+
+    def set_missing(self, missing: int) -> None:
+        """How many files jgo still has to fetch: all of them, or what the jar
+        archive did not bring."""
+        self.missing = missing
+        self.durations["jars"] = DURATIONS["jars"] + SECONDS_PER_DOWNLOAD * missing
+
+    def archive_step(self, fraction: float, label: str, total_bytes: int = 0) -> None:
+        self.archive_fraction, self.archive_label = fraction, label
+        if total_bytes:  # weighs the download as it is: about 5 MB/s
+            self.durations["archive"] = max(DURATIONS["archive"], total_bytes / 5e6)
 
     def feed(self, line: str) -> None:
         if line.startswith(DOWNLOADING):
             self.downloads += 1
         elif line.startswith(JVM_STARTED):
-            self.finish("java")
-            self.finish("jars")
+            for phase in ("java", "archive", "jars"):
+                self.finish(phase)
         elif line.startswith(PHASE_MARK):
             phase, _, state = line[len(PHASE_MARK):].partition(" ")
             if state == "start":
@@ -391,8 +430,9 @@ class Progress:
 
     def finish(self, phase: str) -> None:
         self.done.add(phase)
-        if phase == "java":
-            self.started.setdefault("jars", time.monotonic())
+        following = self.current
+        if following is not None:
+            self.started.setdefault(following, time.monotonic())
 
     def finish_all(self) -> None:
         self.done.update(self.phases)
@@ -404,16 +444,19 @@ class Progress:
     def phase_fraction(self, phase: str) -> float:
         if phase in self.done:
             return 1.0
-        if phase == "jars":
-            return min(self.downloads / EXPECTED_DOWNLOADS, 0.99)
+        if phase == "archive":
+            return min(self.archive_fraction, 0.99)
+        if phase == "jars" and self.missing:
+            return min(self.downloads / self.missing, 0.99)
         if phase not in self.started:
             return 0.0
         elapsed = time.monotonic() - self.started[phase]
-        return 0.95 * (1 - math.exp(-elapsed / DURATIONS[phase]))
+        return 0.95 * (1 - math.exp(-elapsed / self.durations[phase]))
 
     def fraction(self) -> float:
-        total = sum(DURATIONS[phase] for phase in self.phases)
-        return sum(DURATIONS[phase] * self.phase_fraction(phase) for phase in self.phases) / total
+        weights = {phase: self.durations[phase] for phase in self.phases}
+        return (sum(weights[phase] * self.phase_fraction(phase) for phase in self.phases)
+                / sum(weights.values()))
 
     def label(self) -> str:
         phase = self.current
@@ -421,11 +464,13 @@ class Progress:
             return "Done."
         if phase == "java":
             return f"Java {JAVA_VERSION}: checking, downloaded the first time"
+        if phase == "archive":
+            return self.archive_label or "ABBA and Fiji: checking what is already there"
         if phase == "jars":
-            if not self.downloads:
-                return "ABBA and Fiji: checking"
-            return (f"ABBA and Fiji: {self.downloads} of about {EXPECTED_DOWNLOADS} files "
-                    "(the first time only)")
+            if self.downloads:
+                return (f"ABBA and Fiji: {self.downloads} of about {self.missing} files "
+                        "(the first time only)")
+            return "ABBA and Fiji: putting them together"
         return f"{ENVIRONMENTS[phase].split(' (')[0]}: building its Python environment"
 
 
@@ -456,6 +501,159 @@ class FijiOutput:
     def unexplained(self) -> list[str]:
         """What jgo said, when Fiji ended before starting."""
         return [] if self.jvm_started else list(self.held)
+
+
+# --------------------------------------------------------------------------- #
+#  The jars in one archive
+# --------------------------------------------------------------------------- #
+
+#: ABBA and Fiji's jars and POMs, as jgo fetches them into an empty cache, in
+#: one zip on the GitHub release. jgo fetches them one at a time: some 1900
+#: files, 15 to 25 minutes, mostly spent waiting between files. One download
+#: of the same 0.5 GB takes minutes. Made by tools/build_jars.py.
+JARS_ARCHIVE = f"ABBA-{ABBA_VERSION}-jars.zip"
+JARS_URL = ("https://github.com/BIOP/ijp-imagetoatlas/releases/download/"
+            f"{ABBA_VERSION}/{JARS_ARCHIVE}")
+#: What the archive holds, one path per line relative to the repository cache:
+#: what is missing, and how many files jgo fetches without it.
+JARS_MANIFEST = HERE / "jars.txt"
+#: With fewer files missing, jgo fetches them faster than the archive downloads.
+ARCHIVE_THRESHOLD = 50
+#: A tiny artifact of the manifest, without dependencies: jgo is asked for it
+#: before the archive is unpacked, to check that it uses the repository cache
+#: the archive is about to go into.
+PROBE = "aopalliance:aopalliance:1.0"
+PROBE_PATH = "aopalliance/aopalliance/1.0/aopalliance-1.0.jar"
+#: Longer paths are invisible to Python on a Windows without long paths: jgo
+#: would not see the files the archive put there.
+WINDOWS_MAX_PATH = 259
+
+
+@functools.cache
+def manifest() -> tuple[str, ...]:
+    return tuple(line for line in JARS_MANIFEST.read_text(encoding="utf-8").splitlines() if line)
+
+
+def expected_downloads() -> int:
+    """How many files jgo fetches into an empty cache."""
+    return len(manifest())
+
+
+def missing_files(repo: Path) -> list[str]:
+    return [path for path in manifest() if not (repo / path).exists()]
+
+
+def archive_source() -> str | None:
+    """The archive: a copy next to the installation (an installation without
+    internet), or the release. ABBA_JARS_URL replaces the release; "none"
+    turns the archive off."""
+    configured = os.environ.get("ABBA_JARS_URL")
+    if configured:
+        return None if configured == "none" else configured
+    for folder in (APP, Path(os.environ.get("ABBA_JARS_DIR") or APP)):
+        local = folder / JARS_ARCHIVE
+        if local.exists():
+            return str(local)
+    return JARS_URL
+
+
+def probe_repo_cache(repo: Path, home: Path) -> str | None:
+    """Ask jgo for PROBE and check where it went: None if jgo uses `repo`,
+    otherwise why not. Run before the archive is unpacked there, so that a jgo
+    looking elsewhere costs a few seconds, not a download unpacked for nothing."""
+    jar = repo / PROBE_PATH
+    before = jar.exists()
+    argv = [console_python(), "-m", "jgo", *JGO_FLAGS, "--repo-cache", str(repo),
+            "--cache-dir", str(user_dir() / "jgo-probe"), "info", "classpath", PROBE]
+    result = subprocess.run(argv, env=environment(home, headless=True), capture_output=True,
+                            text=True, encoding="utf-8", errors="replace", timeout=300,
+                            stdin=subprocess.DEVNULL, **_process_flags(detached=False))
+    fetched = f"{DOWNLOADING}{Path(PROBE_PATH).name}" in result.stdout + result.stderr
+    if result.returncode != 0:
+        return f"jgo could not resolve {PROBE} (exit {result.returncode})"
+    if not jar.exists():
+        return f"jgo did not put {PROBE} in {repo}"
+    if before and fetched:
+        return f"jgo fetched {PROBE} although it is in {repo}: it uses another cache"
+    return None
+
+
+def download(url: str, destination: Path, step: Callable[[int, int], None]) -> None:
+    """To `<name>.part`, then renamed: an interrupted download is never taken
+    for a finished one."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    part = destination.with_name(destination.name + ".part")
+    with urllib.request.urlopen(url, timeout=60) as response, part.open("wb") as out:
+        total = int(response.headers.get("Content-Length") or 0)
+        done = 0
+        while chunk := response.read(1 << 20):
+            out.write(chunk)
+            done += len(chunk)
+            step(done, total)
+    part.replace(destination)
+
+
+def unpack(archive: Path, repo: Path, wanted: set[str], step: Callable[[int, int], None]) -> int:
+    """The archive's files that are in `wanted` and not in `repo` yet: nothing
+    is overwritten, and nothing outside the manifest is written. Each file via
+    `.part`, so that a file jgo sees is always whole."""
+    written = 0
+    with zipfile.ZipFile(archive) as zipped:
+        names = [name for name in zipped.namelist() if name in wanted]
+        for index, name in enumerate(names, 1):
+            target = repo / name
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                part = target.with_name(target.name + ".part")
+                with zipped.open(name) as source, part.open("wb") as out:
+                    shutil.copyfileobj(source, out)
+                part.replace(target)
+                written += 1
+            if index % 50 == 0 or index == len(names):
+                step(index, len(names))
+    return written
+
+
+def fetch_jars(home: Path, say: Callable[[str], None], progress: Progress) -> None:
+    """Most of ABBA and Fiji's jars missing (a first install): put them in
+    jgo's repository cache from the archive, so that jgo only fetches what the
+    archive lacks. Any problem leaves it to jgo, file by file: slower, not worse."""
+    repo = repo_cache()
+    try:
+        missing = missing_files(repo)
+        if len(missing) < ARCHIVE_THRESHOLD:
+            return
+        source = archive_source()
+        if source is None:
+            return
+        if os.name == "nt" and max(len(str(repo / path)) for path in missing) > WINDOWS_MAX_PATH:
+            raise RuntimeError(f"{repo} is too deep: some jars would pass Windows' path limit")
+        progress.archive_step(0.0, "ABBA and Fiji: checking where jgo keeps its jars")
+        problem = probe_repo_cache(repo, home)
+        if problem:
+            raise RuntimeError(problem)
+        archive = Path(source)
+        if not archive.exists():  # a URL
+            say(f"Downloading ABBA and Fiji in one archive: {source}")
+            archive = user_dir() / "downloads" / JARS_ARCHIVE
+
+            def downloading(done: int, total: int) -> None:
+                progress.archive_step(0.85 * done / total if total else 0.0,
+                                      f"ABBA and Fiji: {done >> 20} of {total >> 20} MB "
+                                      "(one archive)", total)
+
+            download(source, archive, downloading)
+        written = unpack(archive, repo, set(missing), lambda index, total: progress.archive_step(
+            0.85 + 0.15 * index / total, f"ABBA and Fiji: unpacking, {index} of {total} files"))
+        say(f"  {written} files unpacked into {repo}")
+        if archive.parent == user_dir() / "downloads":
+            archive.unlink(missing_ok=True)
+    except Exception as error:  # noqa: BLE001 -- jgo fetching file by file is the way back
+        say(f"The jar archive could not be used ({error}); jgo fetches the files one by one "
+            "instead, which takes longer.")
+    finally:
+        progress.set_missing(len(missing_files(repo)))
+        progress.finish("archive")
 
 
 # --------------------------------------------------------------------------- #
@@ -497,7 +695,8 @@ def prepare(environments: list[str], say: Callable[[str], None] = print,
         prepare_shared_data(say)
     home = java_home(say)
     progress.finish("java")
-    say("Resolving ABBA and Fiji (the first time: about 1900 files, up to 15 minutes)...")
+    fetch_jars(home, say, progress)
+    say("Resolving ABBA and Fiji...")
     if environments:
         say(f"Python environments go to {appose_envs_dir()}")
     argv = jgo_argv(GROOVY_MAIN, args=[str(PREPARE_SCRIPT), ",".join(environments) or "none"])

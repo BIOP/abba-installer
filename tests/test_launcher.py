@@ -18,6 +18,9 @@ def per_user(tmp_path, monkeypatch):
     monkeypatch.setattr(launcher, "SHARED_DATA_RECORD", tmp_path / "app" / "java" / "shared-data.txt")
     monkeypatch.setattr(launcher, "user_dir", lambda: tmp_path / "user")
     monkeypatch.delenv("ABBA_SHARED_DATA", raising=False)
+    monkeypatch.delenv("ABBA_JARS_DIR", raising=False)
+    monkeypatch.setenv("M2_REPO", str(tmp_path / "m2"))
+    monkeypatch.setenv("ABBA_JARS_URL", "none")  # tests that want the archive say so
     return tmp_path
 
 
@@ -39,7 +42,9 @@ def test_jvm_options_and_script_arguments(per_user):
     assert argv[argv.index("--max-heap") + 1] == "8G"
     assert argv[argv.index("--main-class") + 1] == launcher.GROOVY_MAIN
     assert argv[-4:] == ["--", "--", "script.groovy", "none"]
-    assert "--cache-dir" not in argv  # per user: jgo's own caches
+    assert "--cache-dir" not in argv  # per user: jgo's own environment cache
+    # but always the repository cache, where the jar archive is unpacked
+    assert argv[argv.index("--repo-cache") + 1] == str(per_user / "m2")
 
 
 def test_logback_configuration_goes_in_a_jar(per_user):
@@ -138,16 +143,21 @@ def test_versions_agree():
     assert __version__.split(".post")[0] == launcher.ABBA_VERSION
 
 
-def test_progress_counts_the_jars_then_follows_the_phases(monkeypatch):
+def test_progress_follows_the_phases(monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(launcher.time, "monotonic", lambda: clock[0])
     progress = launcher.Progress(["elastix"])
     assert progress.current == "java" and progress.fraction() == 0
     progress.finish("java")
-    for _ in range(launcher.EXPECTED_DOWNLOADS // 2):
-        progress.feed("Downloading fiji-2.18.0.pom ---- 24.6/3.5 kB")
-    assert progress.current == "jars"
-    assert "961 of about 1923 files" in progress.label()
+    progress.archive_step(0.5, "ABBA and Fiji: 250 of 500 MB (one archive)", 500 << 20)
+    assert progress.current == "archive" and "250 of 500 MB" in progress.label()
+    halfway_archive = progress.fraction()
+    progress.finish("archive")
+    progress.set_missing(10)  # what the archive did not bring
+    for _ in range(5):
+        progress.feed("Downloading natives-linux-1.0.jar ---- 24.6/3.5 kB")
+    assert progress.current == "jars" and "5 of about 10 files" in progress.label()
+    assert progress.fraction() > halfway_archive
     halfway = progress.fraction()
     progress.feed("Picked up JAVA_TOOL_OPTIONS: --add-opens=...")
     assert progress.current == "elastix" and progress.fraction() > halfway
@@ -159,10 +169,110 @@ def test_progress_counts_the_jars_then_follows_the_phases(monkeypatch):
     assert progress.current is None and progress.fraction() == 1 and progress.label() == "Done."
 
 
-def test_more_downloads_than_expected_do_not_finish_the_jars():
+def test_without_the_archive_the_jars_are_counted_against_the_manifest():
     progress = launcher.Progress()
-    progress.downloads = 3 * launcher.EXPECTED_DOWNLOADS
+    assert progress.missing == launcher.expected_downloads() == len(launcher.manifest())
+    progress.downloads = 3 * progress.missing  # more than expected
     assert progress.phase_fraction("jars") < 1
+
+
+# -- the jar archive ----------------------------------------------------------
+
+FILES = ("a/b/1.0/b-1.0.jar", "a/b/1.0/b-1.0.pom", launcher.PROBE_PATH)
+
+
+@pytest.fixture
+def archive(per_user, monkeypatch):
+    """A three-file manifest, its archive next to the installation, and a probe
+    that finds jgo using the repository cache."""
+    monkeypatch.setattr(launcher, "manifest", lambda: FILES)
+    monkeypatch.setattr(launcher, "ARCHIVE_THRESHOLD", 2)
+    path = per_user / "dl" / launcher.JARS_ARCHIVE
+    path.parent.mkdir()
+    with zipfile.ZipFile(path, "w") as zipped:
+        for name in (*FILES, "../outside.jar", "not/in/manifest.jar"):
+            zipped.writestr(name, f"archive {name}")
+    monkeypatch.setenv("ABBA_JARS_URL", str(path))
+    monkeypatch.setattr(launcher, "probe_repo_cache", lambda repo, home: None)
+    return per_user / "m2"
+
+
+def fetch(progress=None) -> list[str]:
+    said = []
+    launcher.fetch_jars(Path("jdk"), said.append, progress or launcher.Progress())
+    return said
+
+
+def test_the_archive_adds_only_missing_manifest_files(archive):
+    (archive / "a/b/1.0").mkdir(parents=True)
+    (archive / "a/b/1.0/b-1.0.pom").write_text("already there")
+    progress = launcher.Progress()
+    fetch(progress)
+    assert (archive / "a/b/1.0/b-1.0.jar").read_text() == "archive a/b/1.0/b-1.0.jar"
+    assert (archive / "a/b/1.0/b-1.0.pom").read_text() == "already there"  # never overwritten
+    assert not (archive / "not/in/manifest.jar").exists()
+    assert not (archive.parent / "outside.jar").exists()
+    assert not list(archive.rglob("*.part"))
+    assert progress.missing == 0 and "archive" in progress.done
+
+
+def test_little_missing_no_archive(archive, monkeypatch):
+    monkeypatch.setattr(launcher, "ARCHIVE_THRESHOLD", 5)
+    fetch()
+    assert not archive.exists()
+
+
+def test_a_probe_finding_another_cache_leaves_everything_to_jgo(archive, monkeypatch):
+    monkeypatch.setattr(launcher, "probe_repo_cache",
+                        lambda repo, home: "jgo fetched it although it is there")
+    progress = launcher.Progress()
+    said = fetch(progress)
+    assert not archive.exists()  # nothing unpacked anywhere
+    assert "jgo fetches the files one by one" in said[-1]
+    assert progress.missing == len(FILES) and "archive" in progress.done
+
+
+@pytest.mark.skipif(launcher.os.name != "nt", reason="Windows' path limit")
+def test_a_too_deep_repository_cache_is_refused(archive, monkeypatch):
+    monkeypatch.setenv("M2_REPO", str(archive / ("x" * 250)))
+    said = fetch()
+    assert "too deep" in said[-1]
+
+
+def probe_with(monkeypatch, repo: Path, before: bool, writes: bool, output: str) -> str | None:
+    jar = repo / launcher.PROBE_PATH
+    if before:
+        jar.parent.mkdir(parents=True)
+        jar.write_text("cached")
+
+    def run(argv, **kwargs):
+        assert argv[argv.index("--repo-cache") + 1] == str(repo)
+        if writes:
+            jar.parent.mkdir(parents=True, exist_ok=True)
+            jar.write_text("fetched")
+        return launcher.subprocess.CompletedProcess(argv, 0, output, "")
+
+    monkeypatch.setattr(launcher.subprocess, "run", run)
+    return launcher.probe_repo_cache(repo, Path("jdk"))
+
+
+FETCHED = "Downloading aopalliance-1.0.jar ---- 4.5/4.5 kB\n"
+
+
+def test_probe_jgo_fetching_into_the_cache(per_user, monkeypatch):
+    assert probe_with(monkeypatch, per_user / "m2", False, True, FETCHED) is None
+
+
+def test_probe_jgo_finding_it_in_the_cache(per_user, monkeypatch):
+    assert probe_with(monkeypatch, per_user / "m2", True, False, "") is None
+
+
+def test_probe_jgo_putting_it_elsewhere(per_user, monkeypatch):
+    assert "did not put" in probe_with(monkeypatch, per_user / "m2", False, False, FETCHED)
+
+
+def test_probe_jgo_fetching_what_the_cache_has(per_user, monkeypatch):
+    assert "another cache" in probe_with(monkeypatch, per_user / "m2", True, False, FETCHED)
 
 
 def test_fiji_output_holds_jgo_back_until_the_jvm_starts():

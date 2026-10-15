@@ -29,8 +29,12 @@ extract it. Then:
 | Java, ABBA, Fiji, DeepSlice, Elastix, BrainGlobe | **Install everything** in the window, or on first use | all downloaded during the installation |
 | Then | the **ABBA** shortcut: next to the installer, in your Start Menu, on your Desktop | the **ABBA** shortcut in every user's Start Menu and Desktop |
 
-Both show the same window, with a progress bar. Everything takes about 6 GB; the first installation takes 20 to
-30 minutes on a typical connection, most of it fetching the 1900 files of ABBA and Fiji.
+Both show the same window, with a progress bar. Everything takes about 6 GB, 10 to 20 minutes depending on the
+connection.
+
+**Without internet**: also download `ABBA-<version>-jars.zip` from the same release (ABBA and Fiji's jars) and
+put it next to the installer, unextracted. Java and the Python environments still need a connection: install
+once on a connected computer, or prepare the machine before going offline.
 
 <img src="docs/window.png" width="640" alt="The ABBA window">
 
@@ -112,8 +116,17 @@ the versions it pins win), into a class path, and runs `net.imagej.Main` on a Zu
 launcher fetches the JDK itself: on its own, jgo would run any Java already installed. **Install everything**
 runs `prepare.groovy` headless on the same class path, which asks ABBA to build its Appose environments.
 
-The progress bar counts the files jgo fetches against the number a first installation needs
-(`EXPECTED_DOWNLOADS`); the Python environments report no progress, so their part of the bar advances with time.
+ABBA and Fiji are some 1900 files (jars and POMs). jgo fetches them one at a time, which takes 15 to 25 minutes,
+mostly spent waiting between files. So when most of them are missing, the launcher first downloads them all in
+one archive from the release (`ABBA-<version>-jars.zip`, 0.5 GB, or a copy next to the installer) and unpacks
+it into jgo's repository cache: jgo then finds them there. Before unpacking, it checks that jgo really uses that
+cache: it asks jgo for one small artifact and looks where it lands. The cache is always passed to jgo
+(`--repo-cache`), never assumed. Files already there are never overwritten, and any problem (no network,
+another cache, a path too long for Windows) leaves jgo to fetch the files one by one, as without the archive.
+`jars.txt` lists the archive's files: what is missing is what the launcher downloads.
+
+The progress bar counts the archive's bytes, then the files jgo still fetches; the Python environments report no
+progress, so their part of the bar advances with time.
 
 | File | Role |
 |---|---|
@@ -129,10 +142,11 @@ The launcher's version is the ABBA version it runs, with `.post1`, `.post2`... f
 
 1. Set `ABBA_VERSION` (and `FIJI_VERSION` if needed) in `launcher.py`, the version in `__init__.py` and
    `pyproject.toml`, and the table at the top of this README; `uv lock`; `uv run pytest`.
-2. `bash tools/count_downloads.sh` (about 15 minutes) and set `EXPECTED_DOWNLOADS` in `launcher.py` to what it
-   prints: the progress bar counts the files jgo fetches against it.
+2. `uv run python tools/build_jars.py` (about 15 minutes: it resolves everything from scratch). It writes the
+   manifest `src/abba_installer/jars.txt` and the archive `dist/ABBA-<version>-jars.zip`.
 3. Try it: `uv run abba prepare --all`, then `uv run abba start` and a registration.
-4. Commit, then `bash tools/make_zip.sh`, and attach `ABBA-<version>.zip` to the ABBA release on GitHub.
+4. Commit, then `bash tools/make_zip.sh`, and attach both `ABBA-<version>.zip` and `ABBA-<version>-jars.zip` to
+   the ABBA release on GitHub, whose tag is the ABBA version: the launcher downloads the archive from there.
 
 The icon is drawn by `uv run --no-project --with pillow python tools/make_icon.py`.
 

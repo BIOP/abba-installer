@@ -277,7 +277,7 @@ class App:
             self.summary.set("✓ Installed for every user of this computer.")
         elif self.install_all:
             self.summary.set(f"Installing for every user of this computer: {what}, {size}. "
-                             "This takes 20 to 30 minutes on a typical connection.")
+                             "This takes 10 to 20 minutes, depending on the connection.")
         elif done is not None and not self.choosing:
             tools = [ENVIRONMENTS[name].split()[0] for name in done]
             self.summary.set(f"✓ Installed: ABBA {launcher.ABBA_VERSION}"
@@ -286,7 +286,7 @@ class App:
             self.summary.set(f"{what}: what is already there is skipped, "
                              "what is missing is downloaded.")
         else:
-            self.summary.set(f"{what}: {size}, 20 to 30 minutes on a typical connection. "
+            self.summary.set(f"{what}: {size}, 10 to 20 minutes depending on the connection. "
                              "Or start ABBA right away: what it needs is downloaded when "
                              "first used.")
         everything = set(chosen) == set(self.supported)
@@ -347,13 +347,13 @@ class App:
         options = settings.options(self.settings)
         self.start_button.configure(state="disabled")
         self.status.set("Starting Fiji. The first start downloads Java, ABBA and Fiji: "
-                        "allow up to 15 minutes.")
-        self.progress = launcher.Progress()
+                        "allow a few minutes.")
+        progress = self.progress = launcher.Progress()
         self.fiji_output = launcher.FijiOutput(self.progress)
 
         def work() -> None:
             try:
-                process = launcher.start_fiji(options, say=self.lines.put)
+                process = launcher.start_fiji(options, say=self.lines.put, progress=progress)
             except Exception as error:  # noqa: BLE001 -- shown, not lost on a thread
                 message = f"Could not start Fiji: {error}"
                 self.lines.put(lambda: self.idle(message))
