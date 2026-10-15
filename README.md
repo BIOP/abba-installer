@@ -1,119 +1,141 @@
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/BIOP/ijp-imagetoatlas)
+<img src="src/abba_installer/assets/icon-256.png" width="64" align="right" alt="ABBA">
 
-# Full Repository for Creating an Installer for [ABBA](https://go.epfl.ch/abba)
+# ABBA installer
 
-Welcome to the repository designed to support the creation of standalone installers for [ABBA](https://go.epfl.ch/abba). This repository utilizes [conda constructor](https://github.com/conda/constructor) as its core tool. Currently, only Windows is supported, but if you are interested in contributing a standalone installer for other operating systems, please feel free to do so!
+Starts [ABBA](https://abba-documentation.readthedocs.io) (Aligning Big Brains & Atlases) in its own Fiji, without
+installing Fiji, Java or Python first. Windows, macOS and Linux.
 
-## Why Create an Installer?
+It runs a **pinned** environment: the same ABBA, Fiji and Java on every computer. Your own Fiji, if you have one,
+is neither used nor modified.
 
-I have a strong affinity for [Fiji](https://imagej.net/). I appreciate Java for its robustness, even if it can be a bit verbose, and its cross-platform compatibility. In most cases, you simply install it, add a few update sites, and it works seamlessly on Windows, Mac, and Linux.
+| ABBA | Fiji | Java |
+|---|---|---|
+| 0.25.0 | 2.18.0 | Zulu 21 |
 
-However, in today's landscape, Java alone doesn't cut it. ABBA can be used as an update site in ImageJ/Fiji, but this "core ABBA" doesn't function seamlessly with:
+DeepSlice, Elastix and the BrainGlobe atlases are not installed by this launcher: ABBA installs them itself, in
+their own Python environments, the first time you use them. The launcher can download them ahead of time
+(**Prepare**).
 
-- [elastix and transformix](https://github.com/SuperElastix/elastix), the software utilized for automated in-plane registration.
-- [Brainglobe atlases](https://brainglobe.info/index.html).
-- [DeepSlice](https://github.com/PolarBean/DeepSlice) for on-axis (and affine in-plane) registration.
+> Already have Fiji? Then you don't need this: enable the `Unige-Biochem` update site, as the
+> [installation page](https://abba-documentation.readthedocs.io/en/latest/installation/installation.html)
+> describes. This launcher is for a computer without Fiji, for a version that must not move, and for
+> installing ABBA once for every user of a shared computer.
 
-While elastix, transformix, and DeepSlice can be integrated into Fiji with some effort and configuration, the Brainglobe atlases remain inaccessible.
+## Install for yourself
 
-In the end, failing to provide a convenient installation method frustrates everyone involved: users who struggle with installation (or give up before attempting), and developers who find themselves constantly addressing installation issues instead of focusing on documentation, bug fixes, or new features. Soon, you'll realize that you're spending all your time trying (and failing) to install tools.
+1. Download `ABBA-<version>.zip` from the [ABBA releases](https://github.com/BIOP/ijp-imagetoatlas/releases) and
+   extract it anywhere you can write to.
+2. Windows: double-click **`Start.cmd`**. macOS / Linux: run `bash start.sh` in a terminal from that folder.
 
-Over the past few years, my primary focus has been simplifying the installation process for ABBA, and this repository represents the best solution I've achieved so far.
+That's all. The first time, `Start.cmd` installs [uv](https://docs.astral.sh/uv/) (it builds the launcher's
+Python environment, and is the only thing installed outside the folder), and adds an **ABBA** shortcut to your
+Start Menu and next to `Start.cmd`. Use the shortcut from then on.
 
-What's the trade-off? First, it's me investing time into creating an installer. Second, with a standalone application, you lose some modularity and the ability to easily add functionalities if you know how to do so. That's why I recommend sticking with "pip install" and configuring it manually if you want to add your own Python script and additional modules. However, it's worth noting that this installer adds a well-defined conda environment for ABBA, so you still have the option to modify the environment created by the installer. To locate it, you can use `conda env list` with Miniforge.
+The ABBA window opens. Click **Start ABBA**: the first start downloads Java, ABBA and Fiji (about 0.5 GB in
+some 1900 files, up to 15 minutes; a progress bar counts them); later starts take seconds. Then start ABBA from
+Fiji as usual. Closing the ABBA window leaves Fiji open.
 
-## The Challenge of Creating an Installer for ABBA
+<img src="docs/window.png" width="640" alt="The ABBA window">
 
-ABBA, being Java-based (ImageJ/Fiji), needs to communicate with Python (Brainglobe, DeepSlice) and a standalone application (elastix, transformix).
+## Install for every user of a computer (Windows)
 
-### Java Communicating with Python
+Double-click **`Install.cmd`**; it asks for administrator rights. It installs into `C:\Program Files\ABBA` (or
+the folder given as its argument) and puts an **ABBA** shortcut in the Start Menu and on the Desktop of every
+user.
 
-For Fiji and Python, [pyimagej](https://py.imagej.net/en/latest/), backed by [jpype](https://jpype.readthedocs.io/en/latest/), has been developed. With this, ImageJ and Fiji can seamlessly communicate. Thanks to pyimagej, all Brainglobe atlases can be utilized in ABBA.
+Everything is downloaded during the installation, so that users have nothing to fetch: the launcher and its own
+Python, Java, ABBA and Fiji's jars, and the Python environments of DeepSlice, Elastix and BrainGlobe. Allow
+several GB and, on a typical connection, 15 to 30 minutes (resolving the 700 jars alone takes about 15).
+Users can read that folder but not write to it.
 
-### Java Communicating with elastix
+Atlases are downloaded when a user first opens one, into `C:\ProgramData\ABBA`, which every user can write: an
+atlas downloaded by one user is there for all. To keep them elsewhere (a larger disk), set `ABBA_SHARED_DATA`
+before running `Install.cmd`:
 
-Elastix has a [Python wrapper](https://github.com/InsightSoftwareConsortium/ITKElastix), theoretically allowing us to avoid using the elastix standalone application. However, ITKElastix is available via pip, not conda, relies on binaries, and is slow to initialize in Python due to lazy loading. In the end, there was already a pre-existing Java wrapper that did the job well enough, so I chose to stick with it. This means ABBA needs to know the location of the standalone elastix (and transformix) executable.
-
-### Working with DeepSlice
-
-Although DeepSlice has a [pip repository](https://pypi.org/project/DeepSlice/) and could potentially work with pyimagej at some point, it depends on an [old TensorFlow version and is not easily updatable](https://github.com/PolarBean/DeepSlice/issues/41). To ensure compatibility with additional Python tools and to maintain flexibility, it's better to keep DeepSlice in a separate conda environment.
-
-## How Does This Installer Work?
-
-**NOTE: An internet connection is required for the installer to function, as it downloads some pip dependencies from PyPI.**
-
-This installer leverages conda-constructor, a tool used to create standalone installers for conda environments on Windows, Mac, and Linux.
-
-This installer creates two environments:
-
-1. A primary conda environment for pyimagej and Brainglobe.
-2. An additional environment for DeepSlice.
-
-However, this alone is not sufficient. With the help of conda constructor and a post-installation script, the following components are added:
-
-- The elastix/transformix standalone application.
-- The models used by DeepSlice.
-- Pip dependencies, including abba-python in the primary conda environment and DeepSlice in the extra environment.
-
-Furthermore, an executable shortcut is included. This shortcut runs a Python script that configures ABBA just before launch:
-
-- It sets the paths for elastix and transformix.
-- It configures the DeepSlice conda environment.
-- It designates an OS-wide folder for caching atlases to prevent redundant downloads.
-
-The initial launch of ABBA may take some time since it needs to download most of Fiji's jars. Therefore, an internet connection is necessary.
-
-## How to Create the Installer
-
-### To do once: create an env for conda-constructor
-```
-conda create --name constructor-env constructor
-conda activate constructor-env
+```bat
+set ABBA_SHARED_DATA=D:\ABBA
+Install.cmd
 ```
 
-### Use conda-constructor
-The YAML file in this repository is required by conda-constructor. However, additional steps are needed to build the installer:
+To update, run the new version's `Install.cmd`. To uninstall, delete the installation folder, the two shortcuts
+and, with the atlases, `C:\ProgramData\ABBA`.
 
-1. Clone this repository.
-2. Create a conda environment, activate it, and then install conda-constructor within it.
-3. (Optional) Copy the DeepSlice models you require to the `envs/deepslice/lib/site-packages/DeepSlice/metadata/weights/` subfolder. This prevents model downloads during the first DeepSlice execution, significantly improving startup time. Model URLs:
-   - [xception_weights_tf_dim_ordering_tf_kernels.h5](https://data-proxy.ebrains.eu/api/v1/buckets/deepslice/weights/xception_weights_tf_dim_ordering_tf_kernels.h5)
-   - [Allen_Mixed_Best.h5](https://data-proxy.ebrains.eu/api/v1/buckets/deepslice/weights/Allen_Mixed_Best.h5)
-   - [Synthetic_data_final.hdf5](https://data-proxy.ebrains.eu/api/v1/buckets/deepslice/weights/Synthetic_data_final.hdf5)
+## Prepare
 
-Each operating system has its own requirements:
+ABBA downloads DeepSlice (TensorFlow, several GB), Elastix (about 1.3 GB) and the BrainGlobe atlas API (about
+0.6 GB) the first time it uses each of them. **Prepare** in the window downloads them now, for instance before
+a workshop or before going offline. An installation for every user prepares all three.
 
-### Windows
+## Command line
 
-Place the [elastix executables](https://github.com/SuperElastix/elastix/releases/tag/5.0.1) in the `win` subfolder under version 5.0.1: `win\elastix-5.0.1-win64`. Then run `prepare_win.bat`, which generates an `abba-pack-win.tar.gz` file. This file will be included in the installer and unpacked during installation using the post-install script.
-TODO: add in prepare_win.sh script
+The window's actions, for a terminal or a script, from the extracted folder:
 
-Place the script https://github.com/BIOP/ijl-utilities-wrappers/blob/master/src/main/resources/deepslice_cli_v1.1.5.1.py in the appriopriate location so that DeepSlice can be run without admin rights passed the installation.
+```bash
+uv run abba start                    # start Fiji with ABBA; Ctrl+C stops following its output, not Fiji
+uv run abba start --memory 16G       # Java's maximum heap (default: from the computer's memory)
+uv run abba prepare --all            # or --deepslice --elastix --brainglobe
+uv run abba info                     # versions, and where everything is
+```
 
-### Mac
+Extra jars, next to ABBA's: `abba start --with GROUP:ARTIFACT:VERSION` (a Maven artifact, resolved from Maven
+Central and the SciJava repository) or `--add-jar file.jar`. Both repeatable; to keep them, put them in the
+settings file (`abba info` shows where) as `"extra_dependencies"` and `"extra_jars"`. They add jars: they do
+not change the versions ABBA is built with.
 
-Please refer to [this issue](https://github.com/NicoKiaru/ABBA-Python/issues/16).
+## Where things go
 
-### Linux
+| What | For yourself | For every user |
+|---|---|---|
+| Launcher and its Python | the extracted folder (`.venv`) | the installation folder |
+| Java, ABBA and Fiji's jars | jgo's and cjdk's caches in your profile | the installation folder (`java`) |
+| DeepSlice, Elastix, BrainGlobe | `~/.local/share/appose` | the installation folder (`appose`) |
+| Atlases | `~/cached_atlas`, `~/.brainglobe` | `C:\ProgramData\ABBA` |
+| Fiji's log, settings | `%LOCALAPPDATA%\abba-installer`, `%APPDATA%\abba-installer` (`~/.local/share`, `~/.config` elsewhere) | the same, per user |
 
-Please refer to [this issue](https://github.com/NicoKiaru/ABBA-Python/issues/17).
+For yourself, the Python environments and the atlases are where a Fiji with ABBA on the same computer keeps
+them: they are downloaded once for both.
 
-## Actually Building the Installer
+## macOS
 
-In the conda environment with conda constructor that you created, set the repository folder as your current directory, then execute `constructor .`. After a few minutes, an executable file will be generated - that's your installer! Keep in mind that if you need to create a Mac installer, you'll need a Mac machine, and for a Linux installer, you'll need a Linux machine.
+- DeepSlice and Elastix need an Apple-silicon Mac: no TensorFlow nor itk-elastix is published for Intel Macs.
+  ABBA itself runs on both.
+- Unlike `abba_python` (pyimagej), the launcher starts Fiji as a separate program, as Fiji normally runs, so
+  ABBA's window should work. `start.sh` has not been tested on macOS and Linux yet: reports are welcome.
 
-## Potential Improvements
+## How it works
 
-I would like to explore using the mamba solver because conda can be quite slow.
+`jgo` resolves one Maven endpoint, `ch.epfl.biop:ImageToAtlasRegister` then `sc.fiji:fiji` (ABBA first, so that
+the versions it pins win), into a class path, and runs `net.imagej.Main` on a Zulu 21 fetched by `cjdk`. The
+launcher fetches the JDK itself: on its own, jgo would run any Java already installed. **Prepare** runs
+`prepare.groovy` headless on the same class path, which asks ABBA to build its Appose environments.
 
-[Link to mamba.bat](C:\ProgramData\Miniconda3\condabin\mamba.bat) and [reference to issue](https://github.com/mamba-org/mamba/issues/1627).
+| File | Role |
+|---|---|
+| `src/abba_installer/launcher.py` | versions, the jgo command line, starting Fiji, preparing |
+| `src/abba_installer/gui.py`, `cli.py` | the window and the command line |
+| `src/abba_installer/prepare.groovy` | builds the Python environments through ABBA's own code |
+| `Start.cmd`, `start.sh` | install uv if missing, then open the window |
+| `Install.cmd` | the installation for every user |
 
-### Note for using a local Fiji copy jars!
+## Releasing (maintainers)
 
-Initialize with a local Fiji.app installation, so that PyImageJ does not need to download anything else from the Internet. In this case you will also have to manually download the latest .jar files for imglib2-unsafe and imglib2-imglyb and place them in your local Fiji.app/jars directory, as these are required for PyImageJ but not part of the standard Fiji distribution
+The launcher's version is the ABBA version it runs, with `.post1`, `.post2`... for a fix of the launcher alone.
 
-**TODO List**:
-- Include a message informing users that a valid internet connection is required to run this installer (for pip dependencies).
-- Consider including a local Fiji distribution.
-- Explore adding dependencies for OMERO.
-- DO NOT FORGET TO CHANGE THE VERSION IN THE SHORTCUT
+1. Set `ABBA_VERSION` (and `FIJI_VERSION` if needed) in `launcher.py`, the version in `__init__.py` and
+   `pyproject.toml`, and the table at the top of this README; `uv lock`; `uv run pytest`.
+2. `bash tools/count_downloads.sh` (about 15 minutes) and set `EXPECTED_DOWNLOADS` in `launcher.py` to what it
+   prints: the progress bar of a first start counts the files jgo fetches against it.
+3. Try it: `uv run abba prepare --all`, then `uv run abba start` and a registration.
+4. Commit, then `bash tools/make_zip.sh`, and attach `ABBA-<version>.zip` to the ABBA release on GitHub.
+
+The icon is drawn by `uv run --no-project --with pillow python tools/make_icon.py`.
+
+## License
+
+The launcher is MIT licensed ([LICENSE.txt](LICENSE.txt)). What it downloads at run time comes with its own
+licenses: ABBA (BSD-3), Fiji and its components, DeepSlice (GPL-3), itk-elastix (Apache-2.0), the BrainGlobe
+atlas API (BSD-3), and each atlas its own terms.
+
+Developed by Nicolas Chiaruttini. ABBA: [ijp-imagetoatlas](https://github.com/BIOP/ijp-imagetoatlas). For an AI
+assistant driving ABBA, see [abba-mcp](https://github.com/unige-biochem/abba-mcp); to drive it from Python,
+[abba_python](https://github.com/BIOP/abba_python).

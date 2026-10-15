@@ -1,0 +1,515 @@
+"""How ABBA is started: a pinned Fiji, resolved by jgo, on a pinned Java.
+
+Nothing here is an ABBA or a Fiji installation. `jgo` resolves one Maven
+endpoint - ABBA plus Fiji, both pinned below - into a class path, and starts
+it on a JDK fetched through cjdk. So every machine runs the same ABBA, the same
+Fiji and the same Java, whatever else is installed, and the user's own Fiji is
+neither used nor modified.
+
+DeepSlice, Elastix and the BrainGlobe atlas API are not handled here: ABBA
+builds their Python environments itself, through Appose, the first time they
+are used. `prepare()` only asks it to do so ahead of time.
+
+Two layouts, told apart by a `java` folder next to the virtual environment:
+
+- **per user** (`Start.cmd`, `start.sh`): everything goes to the user's own
+  caches - jgo's, cjdk's, Appose's (`~/.local/share/appose`) and ABBA's atlas
+  folders - which a Fiji with ABBA on the same machine shares.
+- **every user** (`Install.cmd`): an administrator downloaded the JDK, the jars
+  and the Python environments into the installation folder, which users can
+  read but not write. Atlases, which are downloaded on demand, go to one folder
+  every user can write (`%ProgramData%\\ABBA`).
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import zipfile
+from collections import deque
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
+from pathlib import Path
+
+#: What this launcher runs. ABBA goes first: in a jgo endpoint the first
+#: artifact's managed versions win, and ABBA pins atlas, biop-tools and
+#: bigdataviewer-playground versions that Fiji's own would otherwise replace.
+ABBA_VERSION = "0.25.0"
+FIJI_VERSION = "2.18.0"
+ENDPOINT = [f"ch.epfl.biop:ImageToAtlasRegister:{ABBA_VERSION}",
+            f"sc.fiji:fiji:{FIJI_VERSION}"]
+SCIJAVA_REPO = "https://maven.scijava.org/content/groups/public"
+
+#: What Fiji ships and ABBA is compiled for. Pinned, not left to jgo: on its own
+#: jgo runs any Java already installed that is at least this version, and a
+#: machine with a newer Java on its PATH would run ABBA on it.
+JAVA_VERSION, JAVA_VENDOR = "21", "zulu"
+
+FIJI_MAIN = "net.imagej.Main"
+GROOVY_MAIN = "groovy.ui.GroovyMain"
+
+HERE = Path(__file__).resolve().parent
+PREPARE_SCRIPT = HERE / "prepare.groovy"
+#: Without a configuration logback logs at DEBUG, and no jar of the endpoint
+#: ships one. It goes on the class path inside a jar (`logback_jar()`): jgo
+#: turns every --add-classpath entry into `<entry>/*`, which only matches jars.
+LOGBACK_XML = HERE / "logback.xml"
+
+#: --lenient: a dependency of the stack leaves a POM property unresolved.
+#: --class-path-only: every jar on the class path, the way Fiji runs them.
+JGO_FLAGS = ["--color", "plain", "--lenient", "--class-path-only",
+             "--java-version", JAVA_VERSION, "--java-vendor", JAVA_VENDOR,
+             "--timeout", "120", "-r", f"scijava:{SCIJAVA_REPO}"]
+
+#: jgo 3.1 drops JVM arguments given after its `--`, so they travel in the
+#: environment. The add-opens is not optional: without it the ImageJ 1.x
+#: patcher fails under Java 21.
+JAVA_TOOL_OPTIONS = ("--add-opens=java.base/java.lang=ALL-UNNAMED "
+                     "-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8")
+
+#: Lines every start prints that say nothing to a user: those containing these.
+NOISE = ("Picked up JAVA_TOOL_OPTIONS", "JavaScriptScriptLanguage")
+
+
+def noise(line: str) -> bool:
+    return any(text in line for text in NOISE)
+
+#: How prepare.groovy marks its lines for the user, Appose's while building, and
+#: the start and end of each environment (`ABBA_PHASE deepslice start`).
+PREPARE_MARK, PREPARE_LOG, PHASE_MARK = "ABBA_PREPARE ", "ABBA_PREPARE_LOG ", "ABBA_PHASE "
+#: What the JVM prints first, JAVA_TOOL_OPTIONS being set: jgo has resolved
+#: everything. Before it, every line is jgo's.
+JVM_STARTED = "Picked up JAVA_TOOL_OPTIONS"
+#: What jgo prints for every file it fetches.
+DOWNLOADING = "Downloading "
+#: How much of the rest to keep, shown when preparing fails.
+TAIL_LINES = 60
+
+#: The environments `prepare()` can build, with what the user is told they cost.
+ENVIRONMENTS = {
+    "deepslice": "DeepSlice (TensorFlow, several GB)",
+    "elastix": "Elastix (itk-elastix, about 1.3 GB)",
+    "brainglobe": "BrainGlobe atlas API (about 0.6 GB)",
+}
+
+# --------------------------------------------------------------------------- #
+#  Where things are
+# --------------------------------------------------------------------------- #
+
+#: The installation folder: the one holding the virtual environment.
+APP = Path(sys.prefix).parent
+#: Written by Install.cmd. When it exists, nothing goes to the user's caches.
+SHARED = APP / "java"
+SHARED_JDK = SHARED / "jdk"
+SHARED_APPOSE = APP / "appose"
+
+
+def shared() -> bool:
+    return SHARED.is_dir()
+
+
+#: Where Install.cmd recorded the shared atlas folder, for the users' sessions.
+SHARED_DATA_RECORD = SHARED / "shared-data.txt"
+
+
+def shared_data() -> Path:
+    """Where every user of a shared installation keeps the atlases:
+    %ProgramData%\\ABBA, unless the administrator set ABBA_SHARED_DATA when
+    installing (recorded then, since users do not have that variable)."""
+    if SHARED_DATA_RECORD.exists():
+        return Path(SHARED_DATA_RECORD.read_text(encoding="utf-8").strip())
+    configured = os.environ.get("ABBA_SHARED_DATA")
+    if configured:
+        return Path(configured)
+    return Path(os.environ.get("ProgramData") or "C:/ProgramData") / "ABBA"
+
+
+def user_dir() -> Path:
+    """The user's own folder: Fiji's log, and the folder Fiji starts in."""
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "abba-installer"
+
+
+def fiji_log() -> Path:
+    return user_dir() / "fiji.log"
+
+
+def appose_envs_dir() -> Path:
+    """Where ABBA's Python environments are: Appose's own default, unless shared."""
+    if shared():
+        return SHARED_APPOSE
+    configured = os.environ.get("APPOSE_ENVS_DIR")
+    return Path(configured) if configured else Path.home() / ".local" / "share" / "appose"
+
+
+# --------------------------------------------------------------------------- #
+#  Java and jgo
+# --------------------------------------------------------------------------- #
+
+def java_executable(home: Path) -> Path:
+    return home / "bin" / ("java.exe" if os.name == "nt" else "java")
+
+
+def java_home(say: Callable[[str], None] = print) -> Path:
+    """The pinned JDK, downloaded on first use (into cjdk's cache, which jgo
+    shares), or the copy a shared installation holds."""
+    if shared():
+        if not java_executable(SHARED_JDK).exists():
+            raise RuntimeError(f"{SHARED_JDK} is missing: run Install.cmd again.")
+        return SHARED_JDK
+    import cjdk
+
+    # cjdk cannot be asked whether the JDK is cached: a lookup that takes more
+    # than a moment is a download, and only then is the user told.
+    notice = threading.Timer(1.5, say, [f"Downloading Java {JAVA_VERSION} ({JAVA_VENDOR}), once..."])
+    notice.start()
+    try:
+        return Path(cjdk.java_home(vendor=JAVA_VENDOR, version=JAVA_VERSION, progress=False))
+    finally:
+        notice.cancel()
+
+
+def fetch_shared_jdk(say: Callable[[str], None]) -> None:
+    """Copy the JDK into the shared folder, once.
+
+    Not left in cjdk's cache: cjdk rewrites its index there, and users cannot
+    write to the shared folder. A plain JDK at a fixed place is what
+    `environment()` points jgo to instead.
+    """
+    if java_executable(SHARED_JDK).exists():
+        return
+    import cjdk
+
+    say(f"Downloading Java {JAVA_VERSION} ({JAVA_VENDOR}) for every user...")
+    home = cjdk.java_home(vendor=JAVA_VENDOR, version=JAVA_VERSION, progress=False)
+    part = SHARED_JDK.with_name(SHARED_JDK.name + ".part")
+    shutil.rmtree(part, ignore_errors=True)
+    shutil.copytree(home, part)
+    # A virus scanner reading the new files keeps the folder from being renamed
+    # for a few seconds.
+    for attempt in range(60):
+        try:
+            part.replace(SHARED_JDK)
+            break
+        except PermissionError:
+            if attempt == 59:
+                raise
+            time.sleep(1)
+    say(f"  {SHARED_JDK}")
+
+
+def console_python() -> str:
+    """The Python to run jgo with: never pythonw.exe, which the window runs on.
+
+    The java.exe jgo starts is a console program: under pythonw it would get a
+    visible console of its own. Under python.exe started with CREATE_NO_WINDOW
+    it shares that hidden one.
+    """
+    executable = Path(sys.executable)
+    console = executable.with_name("python.exe")
+    if executable.name.lower() == "pythonw.exe" and console.exists():
+        return str(console)
+    return sys.executable
+
+
+def environment(home: Path, headless: bool) -> dict[str, str]:
+    options = JAVA_TOOL_OPTIONS + (" -Djava.awt.headless=true" if headless else "")
+    # jgo is Python too: unbuffered, its "Downloading" lines arrive as they happen, which
+    # the progress bar counts; UTF-8, its progress bars hold characters a code page has not.
+    env = dict(os.environ, JAVA_TOOL_OPTIONS=options, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+    # jgo looks at JAVA_HOME, then PATH; on Windows only PATH counts, because it
+    # looks for bin/java, not bin/java.exe. Both are set.
+    env["JAVA_HOME"] = str(home)
+    env["PATH"] = os.pathsep.join([str(java_executable(home).parent), env.get("PATH", "")])
+    if shared():
+        env["APPOSE_ENVS_DIR"] = str(SHARED_APPOSE)
+        env["BRAINGLOBE_CONFIG_DIR"] = str(shared_data() / "brainglobe-config")
+    return env
+
+
+def logback_jar() -> Path:
+    """`logback.xml` in a jar of its own, in the user's folder; rewritten only
+    when the configuration changed."""
+    jar = user_dir() / "logback-config.jar"
+    config = LOGBACK_XML.read_bytes()
+    try:
+        with zipfile.ZipFile(jar) as existing:
+            if existing.read("logback.xml") == config:
+                return jar
+    except (OSError, KeyError, zipfile.BadZipFile):
+        pass
+    jar.parent.mkdir(parents=True, exist_ok=True)
+    part = jar.with_name(jar.name + ".part")
+    with zipfile.ZipFile(part, "w") as archive:
+        archive.writestr("logback.xml", config)
+    part.replace(jar)
+    return jar
+
+
+def jgo_argv(main_class: str, *, max_heap: str | None = None,
+             extra_dependencies: list[str] = (), extra_jars: list[Path] = (),
+             args: list[str] = ()) -> list[str]:
+    """The jgo command line. Extra dependencies go after ABBA and Fiji, so that
+    they add jars without changing the versions ABBA is built with."""
+    caches = (["--cache-dir", str(SHARED / "jgo"), "--repo-cache", str(SHARED / "m2")]
+              if shared() else [])
+    heap = ["--max-heap", max_heap] if max_heap else []
+    classpath = [arg for path in [logback_jar(), *extra_jars]
+                 for arg in ("--add-classpath", str(path))]
+    endpoint = "+".join([*ENDPOINT, *extra_dependencies])
+    # The two `--` are jgo's: the first ends jgo's arguments, the second the JVM's.
+    tail = ["--", "--", *args] if args else []
+    return [console_python(), "-m", "jgo", *JGO_FLAGS, *caches, *heap, "run",
+            "--main-class", main_class, *classpath, endpoint, *tail]
+
+
+def _process_flags(detached: bool) -> dict:
+    """No console window on Windows. Detached: a process group (or session) of
+    its own, so that closing the window or the terminal leaves Fiji running."""
+    if os.name == "nt":
+        flags = subprocess.CREATE_NO_WINDOW
+        if detached:
+            flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+        return {"creationflags": flags}
+    return {"start_new_session": True} if detached else {}
+
+
+# --------------------------------------------------------------------------- #
+#  Starting Fiji
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class Options:
+    max_heap: str | None = None
+    extra_dependencies: list[str] = field(default_factory=list)
+    extra_jars: list[Path] = field(default_factory=list)
+
+
+def work_dir() -> Path:
+    """The folder Fiji starts in. ABBA reads its atlas folder from
+    `plugins/BIOP/ABBA_Atlas_folder.txt` relative to it: a shared installation
+    writes one there, pointing every user to the same atlases."""
+    work = user_dir() / "work"
+    marker = work / "plugins" / "BIOP" / "ABBA_Atlas_folder.txt"
+    if shared():
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(shared_data() / "atlases"), encoding="utf-8")
+    else:
+        work.mkdir(parents=True, exist_ok=True)
+        marker.unlink(missing_ok=True)
+    return work
+
+
+def start_fiji(options: Options, say: Callable[[str], None] = print) -> subprocess.Popen:
+    """Start Fiji with ABBA, detached, its output going to `fiji_log()`.
+
+    Detached and logging to a file rather than a pipe: the window or the
+    terminal that started it can close, and Fiji goes on.
+    """
+    home = java_home(say)
+    log_path = fiji_log()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    argv = jgo_argv(FIJI_MAIN, max_heap=options.max_heap,
+                    extra_dependencies=options.extra_dependencies,
+                    extra_jars=options.extra_jars)
+    with log_path.open("w", encoding="utf-8") as log:
+        log.write(f"ABBA {ABBA_VERSION}, Fiji {FIJI_VERSION}, Java {home}\n"
+                  f"{' '.join(argv)}\n\n")
+        log.flush()
+        return subprocess.Popen(argv, cwd=work_dir(), env=environment(home, headless=False),
+                                stdout=log, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, **_process_flags(detached=True))
+
+
+# --------------------------------------------------------------------------- #
+#  Progress
+# --------------------------------------------------------------------------- #
+
+#: Files jgo fetches into an empty cache for ENDPOINT (POMs and jars): counted
+#: for these versions, to be recounted at each release (README, Releasing).
+EXPECTED_DOWNLOADS = 1923
+#: Rough durations on a typical connection, in seconds. They weigh the phases
+#: against each other, and stand in for the progress of the ones that report
+#: none: Java's download, and building a Python environment.
+DURATIONS = {"java": 60, "jars": 900, "deepslice": 480, "elastix": 120, "brainglobe": 60}
+
+
+class Progress:
+    """An approximate progress over what a first start or a preparation does:
+    fetch Java, resolve ABBA and Fiji (jgo), build Python environments.
+
+    Fed the run's output line by line. The jars are counted (`Downloading`
+    lines against `EXPECTED_DOWNLOADS`); a phase without a count advances with
+    time instead, along a curve that slows down rather than reaching its end
+    before the phase does. With warm caches, phases just finish early.
+    Read from another thread than the one feeding it: only plain values.
+    """
+
+    def __init__(self, environments: list[str] = ()) -> None:
+        self.phases = ["java", "jars", *environments]
+        self.done: set[str] = set()
+        self.started = {"java": time.monotonic()}
+        self.downloads = 0
+
+    def feed(self, line: str) -> None:
+        if line.startswith(DOWNLOADING):
+            self.downloads += 1
+        elif line.startswith(JVM_STARTED):
+            self.finish("java")
+            self.finish("jars")
+        elif line.startswith(PHASE_MARK):
+            phase, _, state = line[len(PHASE_MARK):].partition(" ")
+            if state == "start":
+                self.started[phase] = time.monotonic()
+            else:
+                self.finish(phase)
+
+    def finish(self, phase: str) -> None:
+        self.done.add(phase)
+        if phase == "java":
+            self.started.setdefault("jars", time.monotonic())
+
+    def finish_all(self) -> None:
+        self.done.update(self.phases)
+
+    @property
+    def current(self) -> str | None:
+        return next((phase for phase in self.phases if phase not in self.done), None)
+
+    def phase_fraction(self, phase: str) -> float:
+        if phase in self.done:
+            return 1.0
+        if phase == "jars":
+            return min(self.downloads / EXPECTED_DOWNLOADS, 0.99)
+        if phase not in self.started:
+            return 0.0
+        elapsed = time.monotonic() - self.started[phase]
+        return 0.95 * (1 - math.exp(-elapsed / DURATIONS[phase]))
+
+    def fraction(self) -> float:
+        total = sum(DURATIONS[phase] for phase in self.phases)
+        return sum(DURATIONS[phase] * self.phase_fraction(phase) for phase in self.phases) / total
+
+    def label(self) -> str:
+        phase = self.current
+        if phase is None:
+            return "Done."
+        if phase == "java":
+            return f"Java {JAVA_VERSION}: checking, downloaded the first time"
+        if phase == "jars":
+            if not self.downloads:
+                return "ABBA and Fiji: checking"
+            return (f"ABBA and Fiji: {self.downloads} of about {EXPECTED_DOWNLOADS} files "
+                    "(the first time only)")
+        return f"{ENVIRONMENTS[phase].split(' (')[0]}: building its Python environment"
+
+
+class FijiOutput:
+    """Fiji's log, as a user should see it.
+
+    Until the JVM starts, every line is jgo resolving: fed to `progress`, held
+    back, and shown only if Fiji ends before it started, since that is when
+    those lines explain why. From then on, everything but NOISE.
+    """
+
+    def __init__(self, progress: Progress) -> None:
+        self.progress = progress
+        self.jvm_started = False
+        self.held: deque[str] = deque(maxlen=TAIL_LINES)
+
+    def __call__(self, line: str) -> str | None:
+        self.progress.feed(line)
+        if not self.jvm_started:
+            if line.startswith(JVM_STARTED):
+                self.jvm_started = True
+                self.held.clear()
+            elif line.strip():
+                self.held.append(line)
+            return None
+        return None if noise(line) else line
+
+    def unexplained(self) -> list[str]:
+        """What jgo said, when Fiji ended before starting."""
+        return [] if self.jvm_started else list(self.held)
+
+
+# --------------------------------------------------------------------------- #
+#  Preparing
+# --------------------------------------------------------------------------- #
+
+def prepare_shared_data(say: Callable[[str], None]) -> None:
+    """The atlas folders of a shared installation, and the BrainGlobe
+    configuration that points to them. Install.cmd lets users write there."""
+    configured = os.environ.get("ABBA_SHARED_DATA")
+    if configured:  # the administrator's choice wins over an earlier one
+        SHARED_DATA_RECORD.write_text(configured, encoding="utf-8")
+    data = shared_data()
+    config = data / "brainglobe-config"
+    for folder in (data / "atlases", data / "brainglobe", config):
+        folder.mkdir(parents=True, exist_ok=True)
+    conf = config / "bg_config.conf"
+    if not conf.exists():
+        conf.write_text("[default_dirs]\n"
+                        f"brainglobe_dir = {data / 'brainglobe'}\n"
+                        f"interm_download_dir = {data / 'brainglobe'}\n", encoding="utf-8")
+    say(f"Atlases for every user: {data}")
+
+
+def prepare(environments: list[str], say: Callable[[str], None] = print,
+            progress: Progress | None = None) -> Iterator[str]:
+    """Download now what the first start would: Java, ABBA and Fiji's jars,
+    then the Python environments asked for.
+
+    Yields what the JVM says, line by line, and feeds every line to `progress`.
+    Raises if something failed.
+    """
+    unknown = set(environments) - set(ENVIRONMENTS)
+    if unknown:
+        raise ValueError(f"unknown environment(s): {', '.join(sorted(unknown))}")
+    progress = progress or Progress(environments)
+    if shared():
+        fetch_shared_jdk(say)
+        prepare_shared_data(say)
+    home = java_home(say)
+    progress.finish("java")
+    say("Resolving ABBA and Fiji (the first time: about 1900 files, up to 15 minutes)...")
+    if environments:
+        say(f"Python environments go to {appose_envs_dir()}")
+    argv = jgo_argv(GROOVY_MAIN, args=[str(PREPARE_SCRIPT), ",".join(environments) or "none"])
+    process = subprocess.Popen(argv, cwd=work_dir(), env=environment(home, headless=True),
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
+                               errors="replace", bufsize=1, **_process_flags(detached=False))
+    assert process.stdout is not None
+    # The script's own lines are shown; the rest (jgo resolving, the libraries
+    # logging) only when something failed, since that is when it explains why.
+    tail: deque[str] = deque(maxlen=TAIL_LINES)
+    previous = None
+    for raw in process.stdout:
+        line = raw.rstrip("\r\n")
+        progress.feed(line)
+        if line.startswith(PHASE_MARK):
+            continue
+        if line.startswith(PREPARE_LOG):
+            if line != previous:  # a download reports the same line per chunk
+                yield "    " + line[len(PREPARE_LOG):]
+            previous = line
+        elif line.startswith(PREPARE_MARK):
+            yield line[len(PREPARE_MARK):]
+        elif line and not noise(line):
+            tail.append(line)
+    returncode = process.wait()
+    if returncode != 0:
+        yield from tail
+        raise RuntimeError(f"preparing did not complete (exit {returncode}); the reason is above")
+    progress.finish_all()

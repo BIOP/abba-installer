@@ -1,0 +1,33 @@
+[project]
+name = "abba-installer"
+version = "0.25.0"
+description = "ABBA (Aligning Big Brains and Atlases) in a pinned Fiji: a window to start it, for one user or every user of a machine"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+authors = [{ name = "Nicolas Chiaruttini" }]
+requires-python = ">=3.10"
+dependencies = [
+    "jgo[cli]>=3.1",
+    "cjdk>=0.5",
+]
+
+[project.scripts]
+abba = "abba_installer.cli:main"
+
+[project.gui-scripts]
+abba-window = "abba_installer.gui:main"
+
+[project.urls]
+ABBA = "https://github.com/BIOP/ijp-imagetoatlas"
+Documentation = "https://abba-documentation.readthedocs.io"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/abba_installer"]

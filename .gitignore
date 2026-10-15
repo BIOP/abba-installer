@@ -1,13 +1,10 @@
-*.tar.gz
-*.exe
-/win/elastix-5.0.1-win64/
-/win/Fiji.app/
-/Fiji.app/
-
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+dist/
+*.zip
 /.idea/
-/envs/deepslice/lib/site-packages/DeepSlice/metadata/weights/
-/biop-bash-scripts-main/
-/win/elastix-5.2.0-win64/ANNlib-5.2.dll
-/win/elastix-5.2.0-win64/LICENSE
-/win/elastix-5.2.0-win64/NOTICE
-/biop-bash-scripts/
+
+# written by Start.cmd on each start (it holds absolute paths)
+ABBA.lnk

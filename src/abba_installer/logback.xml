@@ -1,0 +1,9 @@
+<configuration>
+  <!-- Without a configuration, logback logs at DEBUG: no jar of the endpoint ships one. The launcher puts this file
+       in a jar of its own (logback-config.jar), jgo adding only jars to the class path. -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder><pattern>%-5level %logger{20} - %msg%n</pattern></encoder>
+  </appender>
+  <root level="WARN"><appender-ref ref="STDERR"/></root>
+</configuration>

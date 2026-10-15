@@ -1,0 +1,10 @@
+* text=auto
+*.cmd text eol=crlf
+*.sh text eol=lf
+*.groovy text eol=lf
+
+# Not in the release zip (tools/make_zip.sh)
+tests/ export-ignore
+tools/ export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
