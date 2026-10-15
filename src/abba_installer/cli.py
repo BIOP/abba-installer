@@ -98,6 +98,8 @@ def prepare(args: argparse.Namespace) -> int:
         return 1
     finally:
         reporter.stop()
+    if not launcher.shared():
+        settings.record_installed(chosen)  # the window shows it as installed
     return 0
 
 

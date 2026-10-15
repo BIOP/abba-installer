@@ -175,3 +175,26 @@ def test_fiji_output_holds_jgo_back_until_the_jvm_starts():
                   "JavaScriptScriptLanguage") is None  # on every start, harmless
     assert output("WARN  bdv - something") == "WARN  bdv - something"
     assert output.unexplained() == []
+
+
+def test_install_is_remembered_per_abba_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "settings_path", lambda: tmp_path / "settings.json")
+    assert settings.installed(settings.load()) is None  # never installed: the window offers it
+    settings.record_installed(["elastix"])
+    settings.record_installed(["deepslice"])  # a second install adds to the first
+    assert settings.installed(settings.load()) == ["deepslice", "elastix"]
+    other = {"installed": {"0.24.1": ["deepslice"]}}
+    assert settings.installed(other) is None  # another ABBA version: not installed
+
+
+def test_intel_macs_get_brainglobe_only(monkeypatch):
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.setattr(launcher.platform, "machine", lambda: "x86_64")
+    assert launcher.supported_environments() == ["brainglobe"]
+    monkeypatch.setattr(launcher.platform, "machine", lambda: "arm64")
+    assert launcher.supported_environments() == list(launcher.ENVIRONMENTS)
+
+
+def test_install_size_counts_java_and_jars():
+    assert launcher.install_size_gb([]) == pytest.approx(0.8)
+    assert round(launcher.install_size_gb(list(launcher.ENVIRONMENTS))) == 6

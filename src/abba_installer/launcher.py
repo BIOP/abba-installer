@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -92,10 +93,24 @@ TAIL_LINES = 60
 
 #: The environments `prepare()` can build, with what the user is told they cost.
 ENVIRONMENTS = {
-    "deepslice": "DeepSlice (TensorFlow, several GB)",
-    "elastix": "Elastix (itk-elastix, about 1.3 GB)",
+    "deepslice": "DeepSlice (about 3 GB)",
+    "elastix": "Elastix (about 1.3 GB)",
     "brainglobe": "BrainGlobe atlas API (about 0.6 GB)",
 }
+#: On disk, in GB, measured: for the size the window announces.
+SIZES_GB = {"java": 0.3, "jars": 0.5, "deepslice": 2.9, "elastix": 1.3, "brainglobe": 0.6}
+
+
+def supported_environments() -> list[str]:
+    """The environments this computer can run: TensorFlow and itk-elastix
+    publish nothing for Intel Macs."""
+    if sys.platform == "darwin" and platform.machine() == "x86_64":
+        return ["brainglobe"]
+    return list(ENVIRONMENTS)
+
+
+def install_size_gb(environments: list[str]) -> float:
+    return sum(SIZES_GB[name] for name in ["java", "jars", *environments])
 
 # --------------------------------------------------------------------------- #
 #  Where things are

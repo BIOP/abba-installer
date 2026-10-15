@@ -2,26 +2,46 @@
 rem  Installs ABBA for every user of this computer.
 rem  Double-click it: it asks for administrator rights itself.
 rem
-rem      Install.cmd [folder]     default: %ProgramFiles%\ABBA
+rem      "Install for all users.cmd" [folder] [/quiet]
+rem
+rem      folder    default: %ProgramFiles%\ABBA
+rem      /quiet    no window and no pause, for unattended deployment: the
+rem                progress is printed here instead; the exit code says
+rem                whether it worked
 rem
 rem  Everything goes into that one folder, all downloaded now so that no user
 rem  has anything to fetch: the launcher and its own Python, a JDK, ABBA and
 rem  Fiji's jars, and the Python environments of DeepSlice, Elastix and
-rem  BrainGlobe (several GB). Users can read the folder but not write to it.
-rem  Atlases, downloaded when first opened, go to %ProgramData%\ABBA (or
+rem  BrainGlobe (about 6 GB, 20 to 30 minutes). The ABBA window shows the
+rem  progress. Users can read the folder but not write to it. Atlases,
+rem  downloaded when first opened, go to %ProgramData%\ABBA (or
 rem  ABBA_SHARED_DATA, see below), which every user can write. An ABBA shortcut
 rem  goes into the Start Menu and onto the Desktop of every user.
 rem
-rem  Running it again updates the installation: run the Install.cmd of a new
-rem  version to move every user to it.
+rem  Running it again updates the installation: run the one of a new version
+rem  to move every user to it.
 rem  To uninstall, delete the folder, the two shortcuts and, with the atlases,
 rem  %ProgramData%\ABBA.
 
 setlocal
 set "SRC=%~dp0"
+set "APP="
+set "QUIET="
+
+rem  The arguments, in any order. Labels rather than ( blocks ), see below.
+:arguments
+if "%~1"=="" goto :arguments_done
+if /i "%~1"=="/quiet" goto :quiet_argument
 set "APP=%~1"
+shift
+goto :arguments
+:quiet_argument
+set "QUIET=1"
+shift
+goto :arguments
+:arguments_done
 if not defined APP set "APP=%ProgramFiles%\ABBA"
-title Install ABBA
+title Install ABBA for all users
 
 rem  No folder name inside a ( block ) here: one holding a ")" would end it.
 
@@ -96,8 +116,15 @@ rem  atlases elsewhere, on a larger disk for instance.
 echo.
 if not defined ABBA_SHARED_DATA set "ABBA_SHARED_DATA=%ProgramData%\ABBA"
 if not exist "%APP%\java" mkdir "%APP%\java"
+if defined QUIET goto :prepare_quietly
+echo Downloading everything; the ABBA window shows the progress. Leave this console open.
+"%APP%\.venv\Scripts\python.exe" -m abba_installer.gui --install-all
+if errorlevel 1 goto :failed
+goto :prepared
+:prepare_quietly
 "%APP%\.venv\Scripts\python.exe" -m abba_installer prepare --all
 if errorlevel 1 goto :failed
+:prepared
 
 rem  Whatever was moved in rather than created there - uv's Python, jars renamed
 rem  from a download - kept its own permissions. Reset them all to the folder's,
@@ -121,12 +148,12 @@ echo.
 echo Installed. Every user of this computer can now start ABBA from the
 echo Start Menu or the Desktop.
 echo.
-pause
+if not defined QUIET pause
 exit /b 0
 
 :failed
 echo.
 echo The installation did not complete. The reason is above.
 echo.
-pause
+if not defined QUIET pause
 exit /b 1
