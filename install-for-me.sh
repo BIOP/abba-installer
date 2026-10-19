@@ -5,6 +5,13 @@
 #
 #     bash install-for-me.sh
 #
+# Without a window - Docker, CI, a server - say what to install instead; the
+# progress is printed:
+#
+#     bash install-for-me.sh --all                      # everything
+#     bash install-for-me.sh --elastix --brainglobe     # some of it
+#     bash install-for-me.sh --none                     # Java, ABBA and Fiji only
+#
 # Run it again to open the window, or to update.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -18,6 +25,11 @@ if [ -z "$uv" ]; then
     echo "uv is not installed yet; installing it."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     uv="$HOME/.local/bin/uv"
+fi
+
+if [ $# -gt 0 ]; then
+    [ "$1" = "--none" ] && shift
+    exec "$uv" run --frozen --no-dev abba prepare "$@"
 fi
 
 echo "Opening the ABBA window (the first time: about a minute)."

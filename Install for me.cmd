@@ -11,6 +11,11 @@ rem
 rem  Run it again to update. To install ABBA for every user of this computer,
 rem  run "Install for all users.cmd" instead.
 rem
+rem  Without a window (a script, CI), say what to install; the progress is printed:
+rem      "Install for me.cmd" --all                    everything
+rem      "Install for me.cmd" --elastix --brainglobe   some of it
+rem      "Install for me.cmd" --none                   Java, ABBA and Fiji only
+rem
 rem  Leave this console window open: it is where a crash would be readable.
 
 setlocal
@@ -57,6 +62,14 @@ set "ABBA_HOME=%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; foreach ($folder in $env:ABBA_HOME, [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')) { $s = $w.CreateShortcut((Join-Path $folder 'ABBA.lnk')); $s.TargetPath = Join-Path $env:ABBA_HOME '.venv\Scripts\pythonw.exe'; $s.Arguments = '-m abba_installer.gui'; $s.WorkingDirectory = $env:ABBA_HOME; $s.IconLocation = (Join-Path $env:ABBA_HOME 'src\abba_installer\assets\app.ico') + ',0'; $s.Description = 'ABBA - Aligning Big Brains and Atlases'; $s.Save() }" >nul 2>&1
 if errorlevel 1 echo WARNING: the ABBA shortcuts could not be written; run this file to open ABBA instead.
 
+if "%~1"=="" goto :window
+set "WHAT=%*"
+if /i "%~1"=="--none" set "WHAT="
+"%UV%" run --frozen --no-dev abba prepare %WHAT%
+if errorlevel 1 goto :failed
+exit /b 0
+
+:window
 echo Opening the ABBA window. From now on, use the ABBA shortcut.
 "%UV%" run --frozen --no-dev python -m abba_installer.gui
 if errorlevel 1 goto :failed
