@@ -467,6 +467,8 @@ class Progress:
         if phase == "archive":
             return self.archive_label or "ABBA and Fiji: checking what is already there"
         if phase == "jars":
+            if self.downloads > self.missing:  # files the archive did not have (natives)
+                return f"ABBA and Fiji: {self.downloads} more files (the first time only)"
             if self.downloads:
                 return (f"ABBA and Fiji: {self.downloads} of about {self.missing} files "
                         "(the first time only)")

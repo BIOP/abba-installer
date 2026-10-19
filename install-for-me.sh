@@ -27,6 +27,10 @@ if [ -z "$uv" ]; then
     uv="$HOME/.local/bin/uv"
 fi
 
+# uv's own Python, never the system's: Linux distributions ship tkinter, which
+# the window needs, as a separate package (python3-tk) that is often missing.
+export UV_PYTHON_PREFERENCE=only-managed
+
 if [ $# -gt 0 ]; then
     [ "$1" = "--none" ] && shift
     exec "$uv" run --frozen --no-dev abba prepare "$@"

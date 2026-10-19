@@ -19,6 +19,33 @@ That page also describes the other ways to get ABBA: in your own Fiji, with an A
 
 <img src="docs/window.png" width="640" alt="The ABBA window">
 
+## Without a window (Docker, CI, servers)
+
+Give the installer what to install, and it installs it without opening the window, printing the progress:
+
+```bash
+bash install-for-me.sh --all                     # everything ("Install for me.cmd" --all on Windows)
+bash install-for-me.sh --elastix --brainglobe    # some of it
+bash install-for-me.sh --none                    # Java, ABBA and Fiji only
+```
+
+Everything goes to the home of the user who runs it, which is where ABBA looks when that user starts it. In a
+Docker image, run it as the user the container runs as, not as root:
+
+```dockerfile
+USER root
+RUN wget -q https://github.com/BIOP/ijp-imagetoatlas/releases/download/0.25.0/ABBA-0.25.0.zip \
+    && unzip -q ABBA-0.25.0.zip -d /opt/ && rm ABBA-0.25.0.zip \
+    && chown -R biop:biop /opt/ABBA-0.25.0
+
+USER biop
+RUN bash /opt/ABBA-0.25.0/install-for-me.sh --all
+```
+
+Then, in the container's desktop, `bash /opt/ABBA-0.25.0/install-for-me.sh` opens the window. The image grows by
+about 6 GB with `--all`, half of it DeepSlice: leave DeepSlice out (`--elastix --brainglobe`) and it is
+downloaded when first used.
+
 ## Extra jars
 
 `uv run abba start --with GROUP:ARTIFACT:VERSION` (a Maven artifact, resolved from Maven Central and the SciJava

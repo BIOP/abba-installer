@@ -43,6 +43,10 @@ if not defined UV (
     exit /b 1
 )
 
+rem  uv's own Python, never one installed on the computer: the same everywhere,
+rem  tkinter included, which the window needs.
+set "UV_PYTHON_PREFERENCE=only-managed"
+
 echo Preparing the launcher's Python environment (the first time: about a minute)...
 "%UV%" sync --frozen --no-dev --quiet
 if errorlevel 1 goto :failed

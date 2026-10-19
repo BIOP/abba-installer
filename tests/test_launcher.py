@@ -308,3 +308,14 @@ def test_intel_macs_get_brainglobe_only(monkeypatch):
 def test_install_size_counts_java_and_jars():
     assert launcher.install_size_gb([]) == pytest.approx(0.8)
     assert round(launcher.install_size_gb(list(launcher.ENVIRONMENTS))) == 6
+
+
+def test_files_the_archive_did_not_have_are_not_counted_against_zero():
+    progress = launcher.Progress()
+    progress.set_missing(0)  # the archive had everything this platform's manifest lists
+    progress.finish("java")
+    progress.finish("archive")
+    for _ in range(7):  # natives of another platform
+        progress.feed("Downloading natives-linux-1.0.jar ---- 24.6/3.5 kB")
+    assert progress.label() == "ABBA and Fiji: 7 more files (the first time only)"
+    assert progress.phase_fraction("jars") < 1
